@@ -3,7 +3,6 @@
 
 #include "pfc.h"
 #include "pfcinternal.h"
-#include "pfctree.h"
 
 
 /* size of 'pfc_State' */
