@@ -9,19 +9,21 @@ typedef struct pfc_State pfc_State;
 
 
 /* debug messages writer (often errors) */
-typedef void (*pfc_MessageFn)(pfc_State *ps, const char *msg);
-
+typedef void (*pfc_fError)(const char *msg);
 
 /* panic handler, invoked in errors (last function to be executed) */
-typedef pfc_noret (*pfc_PanicFn)(pfc_State *ps);
-
+typedef void (*pfc_fPanic)(pfc_State *ps);
 
 /* memory (re)allocator */
-typedef void *(*pfc_ReallocFn)(void *block, void *ud, size_t os, size_t ns);
+typedef void *(*pfc_fRealloc)(void *block, void *ud, size_t os, size_t ns);
 
 
-/* file reader */
-typedef const char *(*pfc_ReaderFn)(pfc_State *ps, void *userdata, size_t *szread);
+/* create/free state */
+PFC_API pfc_State *pfc_new(pfc_fRealloc frealloc, void *userdata);
+PFC_API void pfc_free(pfc_State *ps);
 
+/* set hooks */
+PFC_API pfc_fError pfc_seterror(pfc_State *ps, pfc_fError fmsg);
+PFC_API pfc_fPanic pfc_setpanic(pfc_State *ps, pfc_fPanic fpanic);
 
 #endif

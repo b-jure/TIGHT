@@ -2,33 +2,49 @@
 #define PFCSTATE_H
 
 #include "pfc.h"
+#include "pfcinternal.h"
 #include "pfctree.h"
 
 
+/* size of 'pfc_State' */
 #define SIZEOFSTATE		sizeof(pfc_State)
 
 
-typedef struct pfc_State {
-	pfc_MessageFn fmsg; /* debug message writer */
-	pfc_PanicFn fpanic; /* panic handler */
-	pfc_ReallocFn frealloc; /* memory allocator */
+/* 'magic' in 'PFCHeader' */
+#define PFC_MAGIC		0x706663
+
+
+/* maximum 'nbits' in huffman 'code' */
+#define MAXCODEBITS		15
+
+
+
+/* pfc compressed files header */
+typedef struct PFCHeader {
+	int magic; /* prefix for 'pfc' compressed files */
+	size_t freq[PFC_BYTES];
+	int checksum; /* checksum of header */
+} PFCHeader;
+
+
+/* huffman code */
+typedef struct HuffCode {
+	int nbits; /* how many bits in 'code' */
+	int code; /* huffman code */
+} HuffCode;
+
+
+/* state */
+struct pfc_State {
+	pfc_fError fmsg; /* debug message writer */
+	pfc_fPanic fpanic; /* panic handler */
+	pfc_fRealloc frealloc; /* memory allocator */
 	void *ud; /* userdata for 'frealloc' */
-	pfc_ReaderFn freader; /* file reader */
-	void *rud; /* userdata for 'freader' */
-	Tree *cleanuplist; /* list of all allocated trees */
-	const Tree **forest; /* tree stack */
-	size_t ntrees; /* amount of trees in 'forest' */
-	size_t sizef; /* size of 'forest' */
-} pfc_State;
+	int ncodes; /* number of elements in 'codes' */
+	HuffCode codes[PFC_BYTES]; /* huffman codes */
+};
 
 
-void pfcS_delete(pfc_State *ps);
-pfc_State *pfcS_new(pfc_ReallocFn frealloc, void *userdata, pfc_MessageFn fmsg,
-					pfc_PanicFn fpanic);
-
-void pfcS_shrinkforest(pfc_State *ps);
-void pfcS_sortforest(pfc_State *ps);
-void pcfS_growforest(pfc_State *ps, const Tree *t);
-void pcfS_cutforest(pfc_State *ps);
+void pfcS_gencodes(pfc_State *ps, size_t *freqs);
 
 #endif

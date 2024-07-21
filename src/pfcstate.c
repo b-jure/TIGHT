@@ -1,159 +1,115 @@
-#include "pfcstate.h"
-#include "pfcalloc.h"
-#include "pfctree.h"
-#include "pfcdebug.h"
-
 #include <string.h>
+#include <limits.h>
+
+#include "pfcstate.h"
 
 
 
-/* create state */
-pfc_State *pfcS_new(pfc_ReallocFn frealloc, void *userdata, pfc_MessageFn fmsg,
-					pfc_PanicFn fpanic) 
-{
-	pfc_State *ps;
+/* create new huffman code */
+#define newcode(nb,c)		(HuffCode){.nbits = nb, .code = c}
 
-	ps = (pfc_State *)frealloc(NULL, userdata, 0, SIZEOFSTATE);
-	if (pfc_unlikely(ps == NULL))
-		return NULL;
-	ps->frealloc = frealloc;
-	ps->ud = userdata;
-	ps->fmsg = fmsg;
-	ps->fpanic = fpanic;
-	ps->cleanuplist = NULL;
-	ps->forest = NULL;
-	ps->ntrees = 0;
-	ps->sizef = 0;
-	ps->emergency = 0;
-	return ps;
+
+
+typedef struct SortedBytes {
+	int bytes[PFC_BYTES*2]; /* bytes */
+	int len; /* number of elements in 'bytes' */
+	size_t *freqs;
+} SortedBytes;
+
+
+
+/* swap */
+static inline void swap_(int *x, int *y) {
+	*x ^= *y;
+	*y ^= *x;
+	*x ^= *y;
 }
 
 
-/* delete state */
-void pfcS_delete(pfc_State *ps) {
-	pfcD_freealltrees(ps);
-	pfcA_freevec(ps, ps->forest, ps->sizef);
-	ps->frealloc(ps, ps->ud, SIZEOFSTATE, 0);
+/* sort bytes */
+static void pfcqsort(int *const v, void* ud, int start, int end) {
+	size_t *freqs = (size_t*)ud;
+	if (start >= end) return;
+    swap_(&v[start], &v[(start + end) >> 1]); /* move pivot to start */
+    int last = start;
+    for(int i = last + 1; i <= end; i++)
+        if (freqs[v[i]] > freqs[v[start]])
+            swap_(&v[++last], &v[i]);
+    swap_(&v[start], &v[last]);
+	pfcqsort(v, ud, start, last - 1);
+	pfcqsort(v, ud, last + 1, end);
 }
 
 
-/* 
- * Shrink 'forest' if size is more than 3 times
- * larger than the current use.
- * If 'forest' is being shrunk due to emergency (allocation failed),
- * then the limit is ignored and 'forest' will be shrunk as much
- * as possible.
- */
-void pfcS_shrinkforest(pfc_State *ps) {
-	size_t nsize;
-	size_t limit;
-
-	if (pfc_unlikely(ps->emergency && ps->sizef > ps->ntrees)) {
-		nsize = ps->ntrees;
-		goto realloc;
-	} else {
-		limit = (ps->ntrees >= SIZE_MAX / 3 ? SIZE_MAX : ps->ntrees * 3);
-		if (ps->ntrees <= SIZE_MAX && (ps->sizef > limit)) {
-			nsize = ps->ntrees << 1;
-realloc:
-			pfcA_realloc(ps, ps->forest, ps->sizef, nsize);
-		}
-	}
-}
-
-
-/* perform swap */
-static inline void swaptree(const Tree **x, const Tree **y) {
-	const Tree **temp;
-
-	temp = x;
-	*x = *y;
-	*y = *temp;
-}
-
-
-/* 
- * This implementation choses pivot to be the middle
- * element in the list and the sorting is reversed. 
- * After each partitioning operation list is sorted as: 
- * ```
- * [pweight, [weights >= pweight], [pweight > weights]
- * ```
- * After that the pivot is moved into its place, so the final
- * order after partitioning operation is:
- * ```
- * [[weights >= pweight], pweight, [pweight > weights]]
- * ```
- */
-static void pfcqsort(const Tree **v, size_t start, size_t end) {
-	size_t i;
-	size_t last;
-
-	if (start < end) return;
-    swaptree(&v[start], &v[(start + end) >> 1]); /* move pivot to start */
-    last = start;
-    for(i = last + 1; i <= end; i++)
-        if (v[i]->branches > v[start]->branches)
-            swaptree(&v[++last], &v[i]);
-    swaptree(&v[start], &v[last]);
-	pfcqsort(v, start, last - 1);
-	pfcqsort(v, last + 1, end);
-}
-
-
-/* 
- * Sort 'forest' trees from highest weight
- * value to lowest.
- */
-void pfcS_sortforest(pfc_State *ps) {
-	pfcqsort(ps->forest, 0, ps->ntrees - 1);
-}
-
-
-/* return index where to insert tree in sorted list of trees */
-static size_t getsortedindex(const Tree **p, size_t l, size_t h, const Tree *t) {
-	size_t mid;
+/* return index where to insert the byte */
+static int getsortedindex(const int *bytes, int l, int h, int byte) {
+	int mid;
 
 	while (l < h) {
 		mid = (l + h) >> 1;
-		if (p[mid]->branches > t->branches) l = mid;
+		if (bytes[mid] > byte) l = mid;
 		else h = mid;
 	}
 	return mid;
 }
 
 
-/* 
- * Inserts tree into the 'forest' making sure 'forest'
- * remains sorted.
- * Note: 'forest' must already be sorted!
- */
-void pcfS_growforest(pfc_State *ps, const Tree *t) {
-	size_t i;
-
-	pfcA_growvec(ps, ps->forest, ps->sizef, SIZE_MAX, ps->ntrees);
-	i = getsortedindex(ps->forest, 0, ps->ntrees, t);
-	memmove(&ps->forest[i + 1], &ps->forest[i], ps->ntrees - i);
-	ps->forest[i] = t;
-	ps->ntrees++;
+/* insert 'byte' into sorted bytes */
+static void sortedinsert(SortedBytes *sb, int byte) {
+	int i = getsortedindex(sb->bytes, 0, sb->len - 1, byte);
+	memmove(&sb->bytes[i + 1], &sb->bytes[i], sb->len - i);
+	sb->bytes[i] = byte;
+	sb->len++;
 }
 
 
-/*
- * Cuts the entire 'forest' by removing trees
- * from it and constructing the optimal encoding
- * tree.
- */
-void pcfS_cutforest(pfc_State *ps) {
-	const Tree *t1;
-	const Tree *t2;
+/* generate huffman codes */
+void pfcS_gencodes(pfc_State *ps, size_t freqs[PFC_BYTES]) {
+	SortedBytes sb = { 0 }; /* storage for (sorted) bytes */
+	size_t combfreqs[PFC_BYTES * 2]; /* freqs + combined frequencies */
+	int nodeidx[PFC_BYTES * 2]; /* combined nodes indexes in 'combfreqs' */
+	int fi = PFC_BYTES; /* next available position in 'combfreqs' */
+	int b1, b2; /* left/right node byte */
+	int i; /* loop counter */
 
-	pfcS_sortforest(ps);
-	while (ps->ntrees > 1) {
-		t1 = ps->forest[--ps->ntrees];
-		t2 = ps->forest[--ps->ntrees];
-		pcfS_growforest(ps, pfcT_newroot(ps, t1, t2));
+	/* copy over 'freqs' and initialize upper part to 0 */
+	memcpy(combfreqs, freqs, sizeof(size_t)*PFC_BYTES);
+	memset(&combfreqs[PFC_BYTES], 0, sizeof(size_t)*PFC_BYTES);
+
+	/* add all bytes with frequency bigger than 0 */
+	for (i = 0; i < PFC_BYTES; i++)
+		if (combfreqs[i] != 0)
+			sb.bytes[sb.len++] = i;
+
+	/* sort unsorted bytes */
+	pfcqsort(sb.bytes, combfreqs, 0, sb.len);
+
+	/* build huffman tree */
+	while (sb.len > 1) {
+		b1 = sb.bytes[--sb.len]; /* left side byte */
+		b2 = sb.bytes[--sb.len]; /* right side byte */
+		combfreqs[fi] = combfreqs[b1] + combfreqs[b2]; /* combine frequencies */
+		sortedinsert(&sb, fi); /* b1 <- R -> b2 */
+		nodeidx[b1] = -fi; /* left */
+		nodeidx[b2] = fi; /* right */
+		fi++; /* advance index into 'combfreqs' */
 	}
-	pfc_assert(ps->ntrees == 1);
-	pfcS_shrinkforest(ps);
+	pfc_assert(sb.len == 1);
+	b1 = sb.bytes[--sb.len];
+	nodeidx[b1] = b1; /* index is the actual byte */
+
+	int nbits, code, y;
+	for (i = 0; i < PFC_BYTES; i++) {
+		if (combfreqs[i] == 0) /* skip 0 frequency bytes */
+			continue;
+		y = i; /* preserve 'i' */
+		nbits = code = 0;
+		/* build the huffman code */
+		while (p_abs(nodeidx[y]) != y) { /* while not tree root */
+			code |= (nodeidx[y] >= 0) << nbits; /* 1 if right, 0 if left */
+			y = p_abs(nodeidx[y]); /* follow the node to root */
+			nbits++; /* increment number of bits in 'code' */
+		}
+		ps->codes[i] = newcode(nbits, code);
+	}
 }

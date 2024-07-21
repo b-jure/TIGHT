@@ -4,34 +4,34 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
 
 
-/* signature for functions that do not return */
-#if defined(__GNUC__)
-#define pfc_noret		__attribute__((noreturn)) void
-#else
-#define pfc_noret		void
+/* signature for API functions */
+#if !defined(PFC_API)
+#define PFC_API					extern
 #endif
 
 
-/* branch prediction */
-#if defined(__GNUC__)
-#define pfc_likely(e)		__builtin_expect((e) != 0, 1)
-#define pfc_unlikely(e)		__builtin_expect((e) != 0, 0)
+/* buffer size when reading a file */
+#if !defined(PFC_READBUFFER)
+#define PFC_READBUFFER			65536
 #endif
 
 
-#if defined(PFC_ASSERT)
-#undef NDBG
-#include <assert.h>
-#define pfc_assert(e)		assert(e)
-#else
-#define pfc_assert(e)		((void)0)
+/* buffer size when encoding */
+#if !defined(PFC_WRITEBUFFER)
+#define PFC_WRITEBUFFER			PFC_READBUFFER
 #endif
 
 
-/* shorter typedef */
-typedef unsigned char p_byte;
+/* 
+ * Maximum amount of memory to read into memory
+ * when encoding unbuffered. 
+ */
+#if !defined(PFC_MAXUNBUFFERED)
+#define PFC_MAXUNBUFFERED		1000000000   /* 1 GB */
+#endif
 
 
 #endif
