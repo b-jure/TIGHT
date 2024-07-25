@@ -1,6 +1,6 @@
 ### About
-`TIGHT` is a lossless compression library and a program written in C (C99)
-compatible mostly with GNU/Linux.
+`TIGHT` is a lossless file compression library and a binary written in C (C99)
+compatible mostly with (and only tested on) GNU/Linux.
 Two main algorithms used for compressing are [Huffman coding](https://en.wikipedia.org/wiki/Huffman_coding)
 and [LZW](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Welch), best possible compression
 results are achieved by first compressing files with `LZW` then generating `Huffman` codes on top of it.
