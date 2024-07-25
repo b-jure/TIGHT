@@ -1,11 +1,14 @@
-# pfc - implementation of huffman coding
-# See pfc.h for copyright and licence details.
+# tight
+# See tight.h for copyright and licence details.
 
 include config.mk
 
 SRC = 
 OBJ = ${SRC:.c=.o}
-BIN = pfc
+
+BIN = tight
+LIB = libtight.so
+ARCHIVE = libtight.a
 
 all: options ${BIN}
 
