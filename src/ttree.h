@@ -14,8 +14,9 @@ typedef struct TreeData {
 } TreeData;
 
 
-TreeData *tightT_newleaf(tight_State *ts, size_t freq, ushrt c);
-TreeData *tightT_newparent(tight_State *ts, TreeData *t1, TreeData *t2, ushrt idx);
-void tightT_freeparent(tight_State *ts, TreeData *tdroot);
+TIGHT_FUNC TreeData *tightT_newleaf(tight_State *ts, size_t freq, ushrt c);
+TIGHT_FUNC void tightT_freeparent(tight_State *ts, TreeData *tdroot);
+TIGHT_FUNC TreeData *tightT_newparent(tight_State *ts, TreeData *t1,
+									  TreeData *t2, ushrt idx);
 
 #endif

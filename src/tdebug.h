@@ -16,9 +16,13 @@
 #define tightD_errorf(ts,efmt,...)		tightD_error_(ts, MSGFMT(efmt), __VA_ARGS__)
 
 
-/* print errno error */
-#define tightD_errnoerr(ts,efmt,...) \
+/* print formatted errno error */
+#define tightD_errnoerrf(ts,efmt,...) \
 	tightD_error_(ts, MSGFMT(efmt ": %s"), __VA_ARGS__, strerror(errno))
+
+/* print errno error */
+#define tightD_errnoerr(ts,err) \
+	tightD_error_(ts, MSGFMT(err ": %s"), strerror(errno))
 
 
 /* print warning */
@@ -27,8 +31,8 @@
 
 
 
-t_noret tightD_error_(tight_State *ts, const char *efmt, ...);
-t_noret tightD_memerror(tight_State *ts);
-void tightD_warn_(tight_State *ts, const char *wfmt, ...);
+TIGHT_FUNC t_noret tightD_error_(tight_State *ts, const char *efmt, ...);
+TIGHT_FUNC t_noret tightD_memerror(tight_State *ts);
+TIGHT_FUNC void tightD_warn_(tight_State *ts, const char *wfmt, ...);
 
 #endif

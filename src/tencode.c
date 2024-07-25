@@ -10,14 +10,17 @@
 #include "tbuffer.h"
 
 
+/* maximum bits in huffman code */
+#define MAXCODE			16
+
 /* size of 'tempbuf' in 'BuffWriter' */
-#define TMPBsize		16
+#define TMPBsize		MAXCODE
+
 
 
 /* buffered writer */
 typedef struct BuffWriter {
 	tight_State *ts; /* state */
-	const char *filepath; /* debug */
 	uint len; /* number of elements in 'buf' */
 	byte buf[TIGHT_WBUFFSIZE]; /* write buffer */
 	int validbits; /* valid bits in 'tmpbuf' */
@@ -25,12 +28,11 @@ typedef struct BuffWriter {
 } BuffWriter;
 
 
-/* flush 'buf' into the file */
+/* flush 'buf' into the current 'wfd' */
 static inline void writefile(BuffWriter *bw) {
 	tight_State *ts = bw->ts;
 	if (t_unlikely(bw->len > 0 && write(ts->wfd, bw->buf, bw->len) < 0))
-		tightD_errnoerr(ts, "write error while writting to '%s%s'", bw->filepath,
-							".tight");
+		tightD_errnoerr(ts, "write error while writting output file");
 	bw->len = 0;
 }
 
@@ -46,7 +48,7 @@ static inline void writebyte(BuffWriter *bw, byte byte) {
 /* write 'ushrt' into 'buf' */
 static inline void writeshort(BuffWriter *bw, ushrt shrt) {
 	writebyte(bw, shrt & 0xFF);
-	writebyte(bw, shrt >> 1);
+	writebyte(bw, shrt >> 8);
 }
 
 
@@ -138,11 +140,11 @@ static void writeheader(BuffWriter *bw, BuffReader *br) {
 	/* get size of 'bindata' */
 	long bindatasz = lseek(ts->wfd, 0, SEEK_CUR) - TIGHTbindataoffset;
 	if (t_unlikely(bindatasz < 0))
-		tightD_errnoerr(bw->ts, "lseek error for '%s%s'", bw->filepath, ".tight");
+		tightD_errnoerr(bw->ts, "lseek error in output file");
 	t_assert(hlen > 0);
 	/* seek to start of the 'bindata' */
 	if (t_unlikely(lseek(ts->wfd, TIGHTbindataoffset, SEEK_SET) < 0))
-		tightD_errnoerr(bw->ts, "lseek error for '%s%s'", bw->filepath, ".tight");
+		tightD_errnoerr(bw->ts, "lseek error in output file");
 
 	/* generate MD5 checksum (of 'bindata') */
 	tight5_init(&ctx);
@@ -162,35 +164,57 @@ static void writeheader(BuffWriter *bw, BuffReader *br) {
 }
 
 
-/* write 'eof' for huffman codes */
+/* 
+ * Write 'eof' for huffman codes; last 3 bits
+ * of the last byte encode how many bits to read
+ * from the byte before it + 'bias'.
+ * For example, in case last 3 bits are '001' (1),
+ * then 7 bits will be read from the previous byte.
+ */
 static void writeeof(BuffWriter *bw) {
+	const int bias = 6;
+	int extra = 0;
 
+	if (bw->validbits >= 8) {
+		writebyte(bw, bw->tmpbuf);
+		bw->tmpbuf >>= 8;
+		bw->validbits -= 8;
+		extra = 2;
+	}
+	if (bw->validbits <= 5) { /* 'eof' can fit ? */
+		bw->tmpbuf <<= 8 - bw->validbits; /* shift valid bits */
+		bw->tmpbuf |= bw->validbits + extra; /* add 'eof' bits */
+		writebyte(bw, bw->tmpbuf);
+	} else { /* 'eof' must be in separate byte */
+		t_assert(bias <= bw->validbits);
+		writebyte(bw, bw->tmpbuf);
+		writebyte(bw, bw->validbits - bias);
+	}
+	bw->validbits = 0;
+	writefile(bw); /* write all */
 }
 
 
-/* encode file 'filepath' */
-static int encodefile(tight_State *ts, const char *filepath) {
+/* 
+ * Encode input file, write the result into output file; 
+ * user of the API should ensure that the input file is a
+ * regular file and not a directory, symbolic link or any
+ * other special file, otherwise some system calls might
+ * have undefined behaviour.
+ */
+TIGHT_API void tight_encode(tight_State *ts) {
 	BuffReader br;
 	BuffWriter bw;
 	Buffer outfile;
 	int c;
 
-	/* init reader */
-	memset(&br, 0, sizeof(br));
-	br.ts = ts;
-	br.filepath = filepath;
+	/* must have valid files */
+	t_assert(ts->rfd >= 0 && ts->wfd >= 0 && ts->rfs != ts->wfd);
 
-	/* init writer */
+	/* init reader and writer */
+	memset(&br, 0, sizeof(br));
 	memset(&bw, 0, sizeof(bw));
-	bw.ts = ts;
-	bw.filepath = filepath;
-	tightB_init(ts, &outfile);
-	tightB_addstring(ts, &outfile, filepath, strlen(filepath)); /* base name */
-	tightB_addstring(ts, &outfile, ".tight", sizeof(".tight")); /* suffix */
-	ts->wfd = open(outfile.str, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
-	tightB_free(ts, &outfile);
-	if (t_unlikely(ts->wfd < 0))
-		tightD_errnoerr(ts, "can't create '%s%s'", filepath, ".tight");
+	br.ts = bw.ts = ts;
 
 	/* write header (magic + tree + checksum) */
 	writeheader(&bw, &br);
@@ -204,26 +228,4 @@ static int encodefile(tight_State *ts, const char *filepath) {
 
 	/* write EOF */
 	writeeof(&bw);
-	return 1;
-}
-
-
-/* 
- * Encode 'filename'; only regular files are encoded,
- * directories, symbolic links and other special files
- * are ignored.
- */
-int tightE_encode(tight_State *ts, const char *filepath) {
-	struct stat st;
-	const char *dotp;
-
-	if (lstat(filepath, &st) < 0)
-		tightD_errnoerr(ts, "couldn't stat file '%s'", filepath);
-	if (S_ISREG(st.st_mode)) { /* regular file ? */
-		ts->rfd = open(filepath, O_RDONLY);
-		if (t_unlikely(ts->rfd < 0))
-			tightD_errnoerr(ts, "couldn't open '%s'", filepath);
-		return encodefile(ts, filepath);
-	}
-	return 0;
 }

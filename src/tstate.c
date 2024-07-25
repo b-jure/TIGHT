@@ -1,5 +1,6 @@
 #include <string.h>
 #include <limits.h>
+#include <unistd.h>
 
 #include "tstate.h"
 
@@ -16,6 +17,56 @@ typedef struct TreeHeap {
 	int len; /* number of elements in 'trees' */
 } TreeHeap;
 
+
+
+/* create state */
+TIGHT_API tight_State *tight_new(tight_fRealloc frealloc, void *userdata) {
+	tight_State *ts = (tight_State *)frealloc(NULL, userdata, 0, SIZEOFSTATE);
+	if (t_unlikely(ts == NULL))
+		return NULL;
+	ts->frealloc = frealloc;
+	ts->ud = userdata;
+	ts->fmsg = NULL;
+	ts->fpanic = NULL;
+	ts->hufftree = NULL;
+	memset(ts->codes, 0, sizeof(ts->codes));
+	ts->ncodes = 0;
+	ts->rfd = ts->wfd = -1;
+	return ts;
+}
+
+
+/* set error writer */
+TIGHT_API tight_fError tight_seterror(tight_State *ts, tight_fError fmsg) {
+	tight_fError old = ts->fmsg;
+	ts->fmsg = fmsg;
+	return old;
+}
+
+
+/* set panic handler */
+TIGHT_API tight_fPanic tight_setpanic(tight_State *ts, tight_fPanic fpanic) {
+	tight_fPanic old = ts->fpanic;
+	ts->fpanic = fpanic;
+	return old;
+}
+
+
+/* delete state */
+TIGHT_API void tight_free(tight_State *ts) {
+	if (ts->hufftree) tightT_freeparent(ts, ts->hufftree);
+	if (ts->rfd != -1) close(ts->rfd);
+	if (ts->wfd != -1) close(ts->wfd);
+	ts->frealloc(ts, ts->ud, SIZEOFSTATE, 0);
+}
+
+
+/* set input and output file descriptors */
+TIGHT_API void tight_setfiles(tight_State *ts, int rfd, int wfd) {
+	t_assert(rfd >= 0 && wfd >= 0 && rfd != wfd);
+	ts->rfd = rfd;
+	ts->wfd = wfd;
+}
 
 
 /* swap */
@@ -75,8 +126,8 @@ static inline unsigned reversebits(unsigned code, int len) {
 }
 
 
-/* generate huffman codes and build header huffman tree */
-void tightS_gencodes(tight_State *ts, size_t freqs[TIGHTBYTES]) {
+/* generate huffman codes table and build huffman tree */
+static void tightS_gencodes(tight_State *ts, size_t freqs[TIGHTBYTES]) {
 	TreeHeap ht = { 0 }; /* huffman tree stack */
 	size_t combfreqs[TIGHTBYTES * 2]; /* freqs + combined frequencies */
 	int parentindexes[TIGHTBYTES * 2]; /* parent frequency indexes in 'combfreqs' */
@@ -107,7 +158,7 @@ void tightS_gencodes(tight_State *ts, size_t freqs[TIGHTBYTES]) {
 		fi++; /* advance index into 'combfreqs' */
 	}
 	t_assert(sb.len == 1);
-	t1 = ht.trees[--ht.len]; /* pop built huffman tree */
+	t1 = ht.trees[--ht.len]; /* pop huffman tree */
 	parentindexes[t1->c] = t1->c; /* mark as no parent (root) */
 	ts->hufftree = t1; /* anchor to state */
 

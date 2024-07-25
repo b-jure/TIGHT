@@ -11,20 +11,18 @@
 #define SIZEOFSTATE		sizeof(tight_State)
 
 
-/* TIGHT MAGIC (padded with 0's) */
+/* file format magic (padded with 0's) */
 #define TIGHTMAGIC		0x0000005448474954
-
-
-/* maximum 'nbits' in huffman 'code' */
-#define MAXCODEBITS		15
 
 
 /* offset in header for which md5 checksum is valid */
 #define TIGHTbindataoffset		offsetof(TIGHT, bindata)
 
 
+
 /* MAGIC global */
 extern const byte MAGIC[8];
+
 
 
 /* 
@@ -59,8 +57,5 @@ struct tight_State {
 	int rfd; /* file descriptor open for reading */
 	int wfd; /* file descriptor open for writing */
 };
-
-
-void tightS_gencodes(tight_State *ts, size_t *freqs);
 
 #endif

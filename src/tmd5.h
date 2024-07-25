@@ -30,8 +30,8 @@ typedef struct MD5ctx{
 } MD5ctx;
 
 
-void tight5_init(MD5ctx *ctx);
-void tight5_update(MD5ctx *ctx, byte *b, unsigned int len);
-void tight5_final(MD5ctx *ctx, byte out[16]);
+TIGHT_FUNC void tight5_init(MD5ctx *ctx);
+TIGHT_FUNC void tight5_update(MD5ctx *ctx, byte *b, unsigned int len);
+TIGHT_FUNC void tight5_final(MD5ctx *ctx, byte out[16]);
 
 #endif

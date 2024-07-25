@@ -10,7 +10,7 @@
 #endif
 
 
-/* do not follow ABI in favor of optimizations for non-API functions */
+/* do not conform to ABI in favor of optimizations for non-API functions */
 #if defined(__GNUC__) && ((__GNUC__ * 100 + __GNUC_MINOR__) >= 302) && defined(__ELF__)
 #define TIGHT_FUNC		__attribute__((visibility("internal"))) extern
 #else
@@ -25,8 +25,8 @@
 #endif
 
 
-/* internal assertions */
-#if defined(t_ASSERT)
+/* enables internal assertions */
+#if defined(TIGHT_ASSERT)
 #undef NDBG
 #include <assert.h>
 #define t_assert(e)		assert(e)
