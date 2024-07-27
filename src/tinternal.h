@@ -44,6 +44,12 @@
 #endif
 
 
+/* size of table for codes */
+#if !defined(TIGHTCODES)
+#define TIGHTCODES				(TIGHTBYTES * 2)
+#endif
+
+
 /* math abs */
 #if !defined(t_abs)
 #define t_abs(x)	((x) >= 0 ? (x) : -(x))

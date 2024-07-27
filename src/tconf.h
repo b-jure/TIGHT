@@ -13,13 +13,13 @@
 #endif
 
 
-/* buffer size when reading a file */
+/* buffer size when reading input file */
 #if !defined(TIGHT_RBUFFSIZE)
 #define TIGHT_RBUFFSIZE				65536	/* 64K */
 #endif
 
 
-/* buffer size when encoding; reading from file stream. */
+/* buffer size when writting ouput file */
 #if !defined(TIGHT_WBUFFSIZE)
 #define TIGHT_WBUFFSIZE				TIGHT_RBUFFSIZE
 #endif

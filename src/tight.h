@@ -44,7 +44,7 @@ TIGHT_API tight_fError tight_seterror(tight_State *ts, tight_fError fmsg);
 TIGHT_API tight_fPanic tight_setpanic(tight_State *ts, tight_fPanic fpanic);
 
 /* set input and output file descriptors */
-TIGHT_API void tight_setfiles(tight_State *ts, int rfd, int wfd);
+TIGHT_API void tight_setfiles(tight_State *ts, int rfd, int wfd, const size_t *freqs);
 
 /* encode/decode input file and write results into output file */
 TIGHT_API void tight_encode(tight_State *ts);

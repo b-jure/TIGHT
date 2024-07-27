@@ -2,9 +2,9 @@
 #include <stdarg.h>
 #include <string.h>
 
-#include "pfcdebug.h"
-#include "pfcbuffer.h"
-#include "pfcstate.h"
+#include "tdebug.h"
+#include "tbuffer.h"
+#include "tstate.h"
 
 
 static void errorfmt(tight_State *ts, const char *fmt, va_list ap) {
@@ -81,4 +81,11 @@ void tightD_warn_(tight_State *ts, const char *wfmt, ...) {
 	va_start(ap, wfmt);
 	errorfmt(ts, wfmt, ap);
 	va_end(ap);
+}
+
+
+/* TIGHT header decode error */
+t_noret tightD_headererr(tight_State *ts, const char *extra) {
+	extra = (extra ? extra : "");
+	tightD_error_(ts, MSGFMT("malformed header (input file)%s"), extra);
 }

@@ -30,9 +30,10 @@
 #define tightD_warnf(ts,wfmt,...)		tightD_warn_(ts, MSGFMT(wfmt), __VA_ARGS__)
 
 
-
 TIGHT_FUNC t_noret tightD_error_(tight_State *ts, const char *efmt, ...);
-TIGHT_FUNC t_noret tightD_memerror(tight_State *ts);
 TIGHT_FUNC void tightD_warn_(tight_State *ts, const char *wfmt, ...);
+
+TIGHT_FUNC t_noret tightD_memerror(tight_State *ts);
+TIGHT_FUNC t_noret tightD_headererr(tight_State *ts, const char *extra);
 
 #endif
