@@ -7,6 +7,6 @@ results are achieved by first compressing files with `LZW` then generating `Huff
 That is exactly how the `tight` binary preforms full compression.
 
 `TIGHT` is not meant to be a replacement for any of the already established and much more
-fine tuned, smarter implemented compression algorithms, instead it serves as a
+fine tuned, smarter implementations of mentioned compression algorithms, instead it serves as a
 simple easy to read piece of source code intended for educational purposes.
 Of course any contributions are still welcome.
