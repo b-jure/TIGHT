@@ -60,5 +60,6 @@
 typedef unsigned char		byte;
 typedef unsigned short		ushrt;
 typedef unsigned int		uint;
+typedef unsigned long		ulong;
 
 #endif

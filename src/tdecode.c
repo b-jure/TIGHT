@@ -18,7 +18,7 @@
 static void decodemagic(BuffReader *br) {
 	int c;
 
-	for (uint i = 0; (c = tightB_brfill(br, NULL)) != TIGHTEOF; i++) {
+	for (uint i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		if (t_unlikely(c != MAGIC[i]))
 			tightD_headererr(br->ts, ": invalid magic bytes");
 		if (t_unlikely(i == sizeof(MAGIC) - 1)) return; /* ok */
@@ -43,10 +43,16 @@ static TreeData *decodetree(BuffReader *br) {
 
 
 /* decode header 'bindata' */
-static inline void decodebindata(BuffReader *br) {
-	br->ts->hufftree = decodetree(br);
-	t_assert(br->validbits > 0); /* should have leftover */
-	tightB_readpending(br, NULL); /* rest is just padding */
+static inline void decodebindata(BuffReader *br, int mode) {
+	t_assert(mode & MODEALL);
+	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
+	if (mode & MODEHUFF) {
+		br->ts->hufftree = decodetree(br);
+		printf("decoded tree\n");
+		fflush(stdout);
+		t_assert(br->validbits > 0); /* should have leftover */
+		tightB_readpending(br, NULL); /* rest is just padding */
+	}
 }
 
 
@@ -54,9 +60,9 @@ static inline void decodebindata(BuffReader *br) {
 static void decodechecksum(BuffReader *br, byte *checksum, size_t size) {
 	int c;
 
-	for (int i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
+	for (size_t i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		checksum[i] = c;
-		if (i == size) return; /* ok */
+		if (i == size - 1) return; /* ok */
 	}
 	tightD_headererr(br->ts, ": missing checksum bytes");
 }
@@ -67,8 +73,7 @@ static void verifychecksum(BuffReader *br, byte *checksum, size_t sumsize,
 						   long bindatasize) 
 {
 	byte *md5digest = tightA_malloc(br->ts, sumsize * sizeof(byte));
-	/* for current version must be MD5 checksum */
-	t_assert(sumsize >= 16);
+	t_assert(sumsize >= 16); /* NOTE(jure): current version must be MD5 */
 	tightB_genMD5(br, bindatasize, md5digest);
 	int res = memcmp(md5digest, checksum, sumsize);
 	tightA_free(br->ts, md5digest, sumsize * sizeof(byte));
@@ -78,28 +83,42 @@ static void verifychecksum(BuffReader *br, byte *checksum, size_t sumsize,
 
 
 /* decode 'TIGHT' header */
-static void decodeheader(BuffWriter *bw, BuffReader *br) {
+static int decodeheader(BuffWriter *bw, BuffReader *br) {
+	tight_State *ts = bw->ts;
 	byte checksum[16];
 
 	/* decode 'magic' */
+	printf("decoding magic\n");
+	fflush(stdout);
 	decodemagic(br);
+	printf("decoded magic\n");
+	fflush(stdout);
+
+	int mode = MODEHUFF;
+	/* TODO(jure): int mode = decodemode(br) */
+	t_assert(mode & MODEALL);
 
 	/* start of 'bindata' for 'verifychecksum' */
-	long bindatastart = lseek(br->ts->rfd, 0, SEEK_CUR);
+	long bindatastart = lseek(br->fd, 0, SEEK_CUR);
 	if (t_unlikely(bindatastart < 0))
-		tightD_errnoerr(br->ts, "lseek error in input file");
+		tightD_errnoerr(ts, "lseek error in input file");
 
 	/* decode 'bindata' */
-	decodebindata(br);
+	printf("decoding bindata\n");
+	fflush(stdout);
+	decodebindata(br, mode);
+	printf("decoded bindata\n");
+	fflush(stdout);
 
-	long bindatasize = lseek(br->ts->rfd, 0, SEEK_CUR);
+	long bindatasize = lseek(br->fd, 0, SEEK_CUR);
 	if (t_unlikely(bindatasize < 0))
-		tightD_errnoerr(br->ts, "lseek error in input file");
+		tightD_errnoerr(ts, "lseek error in input file");
 	bindatasize -= bindatastart;
 
 	/* decode 'checksum' and verify it */
 	decodechecksum(br, checksum, sizeof(checksum));
 	verifychecksum(br, checksum, sizeof(checksum), bindatasize);
+	return mode;
 }
 
 
@@ -130,7 +149,7 @@ static int getsymbol(TreeData **t, int *code, int *nbits, int limit)
 
 
 /* decompress/decode file contents */
-static inline void decodefile(BuffWriter *bw, BuffReader *br) {
+static inline void decodehuffman(BuffWriter *bw, BuffReader *br) {
 	tight_State *ts = bw->ts;
 	int ahead, sym, code, left;
 
@@ -159,9 +178,9 @@ static inline void decodefile(BuffWriter *bw, BuffReader *br) {
 		code |= (ahead << left);
 		left += 8;
 	}
-	t_assert(left == 16);
+	t_assert(left == MAXCODE);
 	left = geofbits(code) + EOFBIAS; /* have bias */
-	code >>= 16 - left;
+	code >>= MAXCODE - left;
 eof:
 	while (left > 0) {
 		sym = getsymbol(&ts->hufftree, &code, &left, 0);
@@ -174,17 +193,21 @@ eof:
 }
 
 
+
+/* encode input file writing the changes to output file */
 TIGHT_API void tight_decode(tight_State *ts) {
-	BuffReader br;
-	BuffWriter bw;
+	BuffReader br; BuffWriter bw;
 
 	t_assert(ts->rfd >= 0 && ts->wfd >= 0 && ts->rfd != ts->wfd);
 
 	/* init reader and writer */
-	memset(&br, 0, sizeof(br));
-	memset(&bw, 0, sizeof(bw));
-	br.ts = bw.ts = ts;
+	tightB_initbr(&br, ts, ts->rfd);
+	tightB_initbw(&bw, ts, ts->wfd);
 
-	decodeheader(&bw, &br);
-	decodefile(&bw, &br);
+	int mode = decodeheader(&bw, &br);
+	printf("decoded header\n");
+	fflush(stdout);
+	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
+	if (mode & MODEHUFF)
+		decodehuffman(&bw, &br);
 }

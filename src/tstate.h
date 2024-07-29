@@ -80,4 +80,6 @@ struct tight_State {
 	int wfd; /* file descriptor open for writing */
 };
 
+void tightS_gencodes(tight_State *ts, const size_t *freqs);
+
 #endif

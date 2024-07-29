@@ -1,17 +1,25 @@
+# tight version
 VERSION = 1.0.0
 
 # paths
 PREFIX = /usr/local
 MANPREFIX = $(PREFIX)/share/man
 
-# includes and libraries
-INCS =
-LIBS =
+# optimizations 
+#OPTS = -O2
+
+# debug flags and definitions
+DDEFS = -DTIGHT_ASSERT
+ASANFLAGS = -fsanitize=address -fsanitize=undefined
+DBGFLAGS = ${ASANFLAGS} -g
 
 # flags
-CPPFLAGS =
-CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${INCS} ${CPPFLAGS}
-LDFLAGS  = ${LIBS}
+CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DDEFS} ${DBGFLAGS} ${OPTS}
+LDFLAGS  = ${LIBS} ${ASANFLAGS}
 
 # compiler and linker
 CC = gcc
+
+# archiver
+AR = ar
+ARARGS = rcs

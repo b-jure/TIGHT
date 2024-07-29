@@ -7,6 +7,7 @@
 #define TIGHTBUFFER_H
 
 #include <stdio.h>
+#include <sys/types.h>
 
 #include "tight.h"
 #include "tinternal.h"
@@ -46,22 +47,28 @@ TIGHT_FUNC void tightB_addstring(tight_State *ts, Buffer *buf, const char *str,
 #define TMPBsize		MAXCODE
 
 
+/* get next char */
+#define tightB_brgetc(br) \
+	((br)->n-- > 0 ? *(br)->current++ : tightB_brfill(br, NULL))
+
+
 /* buffered reader */
 typedef struct BuffReader {
 	tight_State *ts;
 	byte *current; /* current position in 'rbuf' */
 	byte buf[TIGHT_RBUFFSIZE]; /* read buffer */
-	uint n; /* chars left to read in 'rbuf' */
+	ssize_t n; /* chars left to read in 'rbuf' */
 	int validbits; /* valid bits in 'tmpbuf' */
 	ushrt tmpbuf; /* temporary bits buffer */
+	int fd; /* file descriptor */
 } BuffReader;
 
 
-TIGHT_FUNC int tightB_brgetc(BuffReader *br);
-TIGHT_FUNC int tightB_brfill(BuffReader *br, long *n);
+TIGHT_FUNC void tightB_initbr(BuffReader *br, tight_State *ts, int fd);
+TIGHT_FUNC int tightB_brfill(BuffReader *br, ulong *n);
 TIGHT_FUNC byte tightB_readnbits(BuffReader *br, int n);
 TIGHT_FUNC int tightB_readpending(BuffReader *br, int *out);
-TIGHT_FUNC void tightB_genMD5(BuffReader *br, long size, byte *out);
+TIGHT_FUNC void tightB_genMD5(BuffReader *br, ulong size, byte *out);
 
 
 
@@ -72,9 +79,11 @@ typedef struct BuffWriter {
 	byte buf[TIGHT_WBUFFSIZE]; /* write buffer */
 	int validbits; /* valid bits in 'tmpbuf' */
 	ushrt tmpbuf; /* temporary bits buffer */
+	int fd; /* file descriptor */
 } BuffWriter;
 
 
+TIGHT_FUNC void tightB_initbw(BuffWriter *bw, tight_State *ts, int fd);
 TIGHT_FUNC void tightB_writefile(BuffWriter *bw);
 TIGHT_FUNC void tightB_writebyte(BuffWriter *bw, byte byte);
 TIGHT_FUNC void tightB_writeshort(BuffWriter *bw, ushrt shrt);

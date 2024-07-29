@@ -35,19 +35,41 @@ typedef void (*tight_fPanic)(tight_State *ts);
 typedef void *(*tight_fRealloc)(void *block, void *ud, size_t os, size_t ns);
 
 
-/* create/free state */
+
+/* create state */
 TIGHT_API tight_State *tight_new(tight_fRealloc frealloc, void *userdata);
+
+/* free state */
 TIGHT_API void tight_free(tight_State *ts);
 
-/* set hooks */
+
+/* debug message handler (error and warnings reporting) */
 TIGHT_API tight_fError tight_seterror(tight_State *ts, tight_fError fmsg);
+
+/* panic handler */
 TIGHT_API tight_fPanic tight_setpanic(tight_State *ts, tight_fPanic fpanic);
 
-/* set input and output file descriptors */
-TIGHT_API void tight_setfiles(tight_State *ts, int rfd, int wfd, const size_t *freqs);
 
-/* encode/decode input file and write results into output file */
-TIGHT_API void tight_encode(tight_State *ts);
+/* 
+ * Set input and output file descriptors, frequencies can be omitted
+ * if huffman coding is not being used, or in case it is being used,
+ * and 'freqs' are still omitted then 'tight' will provide its own
+ * frequency table. 
+ */
+TIGHT_API void tight_setfiles(tight_State *ts, int rfd, int wfd);
+
+
+
+/* modes for encoding */
+#define MODEHUFF		1
+#define MODELZW			2 /* TODO(jure): implement */
+#define MODEALL			(MODEHUFF | MODELZW)
+
+/* 
+ * Prior to encoding/decoding use 'tight_setfiles'.
+ * Encode/decode input file and write results into output file 
+ */
+TIGHT_API void tight_encode(tight_State *ts, int mode, const size_t *freqs);
 TIGHT_API void tight_decode(tight_State *ts);
 
 #endif

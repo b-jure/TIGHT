@@ -34,7 +34,8 @@ static void errorfmt(tight_State *ts, const char *fmt, va_list ap) {
 		}
 		case 'c': {
 			unsigned char c = va_arg(ap, int);
-			tightB_push(ts, &buf, '%');
+			tightB_push(ts, &buf, c);
+			break;
 		}
 		case '%': {
 			tightB_push(ts, &buf, '%');

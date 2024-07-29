@@ -9,7 +9,7 @@
 
 
 #define ensurebuf(ts,b,n) \
-	tightA_ensurevec(ts, (b)->str, (b)->size, SIZE_MAX, (b)->len, n)
+	tightA_ensurevec(ts, (b)->str, (b)->size, UINT_MAX, (b)->len, n)
 
 #define addlen2buff(b,l)		((b)->len += (l))
 
@@ -87,40 +87,41 @@ void tightB_free(tight_State *ts, Buffer *buf) {
  * BuffReader
  *-------------------------------------------------------------------------- */
 
+/* initialize buff reader */
+void tightB_initbr(BuffReader *br, tight_State *ts, int fd) {
+	br->ts = ts;
+	br->current = br->buf;
+	br->n = 0;
+	br->validbits = 0;
+	br->tmpbuf = 0;
+	br->fd = fd;
+}
+
+
 /* 
  * Fill buffer up to 'n' if 'n' is specified otherwise use
  * 'buf' size; 'n' is clamped in case 'n' > sizeof(buf); 
  * additionally if 'n' is provided it will be updated with
  * the number of bytes read. 
  */
-int tightB_brfill(BuffReader *br, long *n) {
-	tight_State *ts = br->ts;
-	long size = (n ? *n : sizeof(br->buf));
+int tightB_brfill(BuffReader *br, ulong *n) {
+	ulong size = (n ? *n : sizeof(br->buf));
 
+	br->n = br->n + (br->n < 0);
+	t_assert(br->n >= 0);
 	t_assert(sizeof(br->buf) <= UINT_MAX);
-	t_assert(br->n == 0 && br->current != NULL);
 	size = (size <= sizeof(br->buf) ? size : sizeof(br->buf));
-	br->n = read(ts->rfd, br->buf, size);
-	if (t_unlikely(br->n < 0))
-		tightD_errnoerr(ts, "read error while reading input file");
+	size -= br->n;
+	size = read(br->fd, br->buf, size);
+	if (t_unlikely(size < 0))
+		tightD_errnoerr(br->ts, "read error while reading input file");
+	br->n += size;
+	t_assert(br->n <= sizeof(br->buf));
 	if (n) *n = br->n;
-	if (br->n == 0) { /* EOF ? */
-		br->current = NULL;
+	if (br->n == 0) /* EOF ? */
 		return TIGHTEOF;
-	} else {
-		br->current = br->buf;
-		return *br->current++;
-	}
-}
-
-
-/* get buffered character */
-int tightB_brgetc(BuffReader *br) {
-	if (br->n > 0)
-		return *br->current++;
-	else if (br->current == NULL)
-		return TIGHTEOF;
-	return tightB_brfill(br, NULL);
+	br->current = br->buf;
+	return *br->current++;
 }
 
 
@@ -158,7 +159,7 @@ int tightB_readpending(BuffReader *br, int *out) {
 
 
 /* generate MD5 digest and store it into 'out' */
-void tightB_genMD5(BuffReader *br, long size, byte *out) {
+void tightB_genMD5(BuffReader *br, ulong size, byte *out) {
 	MD5ctx ctx;
 
 	tight5_init(&ctx);
@@ -166,12 +167,12 @@ void tightB_genMD5(BuffReader *br, long size, byte *out) {
 		/* can't hit EOF while 'size' > 0 */
 		t_assert(br->current != NULL);
 		/* 'n' will get clamped to 'UINT_MAX' if it overflows */
-		long n = size;
+		ulong n = size;
 		tightB_brfill(br, &n);
 		size -= n;
 		tight5_update(&ctx, --br->current, n);
 	} while (size > 0);
-	t_assert(hlen == 0);
+	t_assert(size == 0);
 	tight5_final(&ctx, out);
 }
 
@@ -181,11 +182,20 @@ void tightB_genMD5(BuffReader *br, long size, byte *out) {
  * BuffWriter
  *-------------------------------------------------------------------------- */
 
+/* initialize buff writer */
+void tightB_initbw(BuffWriter *bw, tight_State *ts, int fd) {
+	bw->ts = ts;
+	bw->len = 0;
+	bw->validbits = 0;
+	bw->tmpbuf = 0;
+	bw->fd = fd;
+}
+
+
 /* flush 'buf' into the current 'wfd' */
 void tightB_writefile(BuffWriter *bw) {
-	tight_State *ts = bw->ts;
-	if (t_unlikely(bw->len > 0 && write(ts->wfd, bw->buf, bw->len) < 0))
-		tightD_errnoerr(ts, "write error while writting output file");
+	if (t_unlikely(bw->len > 0 && write(bw->fd, bw->buf, bw->len) < 0))
+		tightD_errnoerr(bw->ts, "write error while writting output file");
 	bw->len = 0;
 }
 
