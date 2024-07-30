@@ -38,7 +38,12 @@ TIGHT_FUNC void tightD_warn_(tight_State *ts, const char *wfmt, ...);
 TIGHT_FUNC t_noret tightD_memerror(tight_State *ts);
 TIGHT_FUNC t_noret tightD_headererr(tight_State *ts, const char *extra);
 
+#if defined(TIGHT_TRACE)
 TIGHT_FUNC void tightD_printbits(int code, int nbits);
 TIGHT_FUNC void tightD_printtree(const TreeData *root);
+#else
+#define tightD_printbits(c, nb)		((void)0)
+#define tightD_printtree(r)			((void)0)
+#endif
 
 #endif

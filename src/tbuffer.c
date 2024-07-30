@@ -133,8 +133,10 @@ ret:
 
 
 /* 
- * Read (up to 8) bits; only used while decoding header; should
- * never be used while decoding actual compressed data.
+ * Read (up to 8) bits; only used while decoding certain
+ * parts of the header; should never be used while decoding
+ * actual compressed data, as we need to have a lookahead
+ * byte for 'eof' bits.
  */
 byte tightB_readnbits(BuffReader *br, int n) {
 	int res;
@@ -143,10 +145,8 @@ byte tightB_readnbits(BuffReader *br, int n) {
 	if (br->validbits < n) { /* read more bits ?  */
 		t_assert(br->validbits + n <= TMPBsize);
 		res = tightB_brgetc(br);
-		printf("got full byte\n");
-		fflush(stdout);
 		if (t_unlikely(res == TIGHTEOF))
-			tightD_headererr(br->ts, ": bindata bits");
+			tightD_headererr(br->ts, ": binary data");
 		br->tmpbuf |= (ushrt)res << br->validbits;
 		br->validbits += 8;
 	}
@@ -170,7 +170,7 @@ int tightB_readpending(BuffReader *br, int *out) {
 
 
 /* get adjusted offset */
-off_t tightB_getoffsetr(BuffReader *br) {
+off_t tightB_getoffset(BuffReader *br) {
 	off_t n = lseek(br->fd, 0, SEEK_CUR);
 	if (t_unlikely(n < 0))
 		tightD_errnoerr(br->ts, "lseek error in input file");

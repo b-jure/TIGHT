@@ -248,10 +248,5 @@ void tight5_final(MD5ctx *ctx, byte digest[16]) {
 	tight5_update(ctx, PADDING, padlen);
 	tight5_update(ctx, bits, 8); /* append original length */
 	encode(digest, ctx->state, 16); /* store state in digest */
-	printf("MD5 >>> ");
-	for (int i = 0; i < 16; i++)
-		printf(" %X", digest[i]);
-	printf(" <<<\n");
-	fflush(stdout);
 	memset(ctx, 0, sizeof(*ctx)); /* zero-out sensitive data */
 }

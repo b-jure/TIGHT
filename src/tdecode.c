@@ -1,5 +1,8 @@
 #include <string.h>
 #include <unistd.h>
+#if defined(TIGHT_TRACE)
+#include <ctype.h>
+#endif
 
 #include "talloc.h"
 #include "tbuffer.h"
@@ -18,25 +21,33 @@
 static void decodemagic(BuffReader *br) {
 	int c;
 
+	t_trace("---Decoding [magic]---\n");
 	for (uint i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		if (t_unlikely(c != MAGIC[i]))
 			tightD_headererr(br->ts, ": invalid magic bytes");
-		if (t_unlikely(i == sizeof(MAGIC) - 1)) return; /* ok */
+		if (t_unlikely(i == sizeof(MAGIC) - 1)) {
+			t_tracef("%.*s\n", (int)sizeof(MAGIC), MAGIC);
+			return; /* ok */
+		}
 	}
-	tightD_headererr(br->ts, ": missing magic bytes");
+	tightD_headererr(br->ts, ": incomplete magic");
 }
 
 
-/* auxiliary to 'decodebindata', decodes encodec huffman tree */
+/* auxiliary to 'decodebindata', decodes encode huffman tree */
 static TreeData *decodetree(BuffReader *br) {
 	int bits = tightB_readnbits(br, 1);
 
 	if (bits == 0) { /* parent ? */ 
+		t_trace("[");
 		TreeData *t1 = decodetree(br);
+		t_trace(", ");
 		TreeData *t2 = decodetree(br);
+		t_trace("]");
 		return tightT_newparent(br->ts, t1, t2, 0);
 	} else { /* leaf */
 		bits = tightB_readnbits(br, 8); /* get symbol */
+		t_tracef((isgraph(bits) ? "%c" : "%d"), bits);
 		return tightT_newleaf(br->ts, 0, bits);
 	}
 }
@@ -45,11 +56,10 @@ static TreeData *decodetree(BuffReader *br) {
 /* decode header 'bindata' */
 static inline void decodebindata(BuffReader *br, int mode) {
 	t_assert(mode & MODEALL);
-	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
 	if (mode & MODEHUFF) {
+		t_trace("---Decoding [tree]----\n");
 		br->ts->hufftree = decodetree(br);
-		printf("decoded tree\n");
-		fflush(stdout);
+		t_trace("\n");
 		t_assert(br->validbits > 0); /* should have leftover */
 		tightB_readpending(br, NULL); /* rest is just padding */
 	}
@@ -60,9 +70,19 @@ static inline void decodebindata(BuffReader *br, int mode) {
 static void decodechecksum(BuffReader *br, byte *checksum, size_t size) {
 	int c;
 
+	t_trace("---Decoding [checksum]---\n");
 	for (size_t i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		checksum[i] = c;
-		if (i == size - 1) return; /* ok */
+		if (i == size - 1) {
+#if defined(TIGHT_TRACE)
+			for (uint i = 0; i < size; i++) {
+				t_tracef("%02X", checksum[i]);
+				if ((i + 1) % 2 == 0) t_trace(" ");
+			}
+			t_trace("\n");
+#endif
+			return; /* ok */
+		}
 	}
 	tightD_headererr(br->ts, ": missing checksum bytes");
 }
@@ -87,20 +107,16 @@ static int decodeheader(BuffReader *br) {
 	byte checksum[16];
 
 	/* decode 'magic' */
-	printf("decoding magic\n");
-	fflush(stdout);
 	decodemagic(br);
-	printf("decoded magic\n");
-	fflush(stdout);
 
 	int mode = MODEHUFF;
 	/* TODO(jure): int mode = decodemode(br) */
 	t_assert(mode & MODEALL);
 
 	/* start of 'bindata' for 'verifychecksum' */
-	off_t bindatastart = tightB_getoffsetr(br);
+	off_t bindatastart = tightB_getoffset(br);
 	decodebindata(br, mode);
-	off_t bindatasize = tightB_getoffsetr(br);
+	off_t bindatasize = tightB_getoffset(br);
 	t_assert(bindatasize > bindatastart);
 	bindatasize -= bindatastart;
 	if (t_unlikely(lseek(br->fd, bindatastart, SEEK_SET) < 0))
@@ -147,6 +163,7 @@ static inline void decodehuffman(BuffWriter *bw, BuffReader *br) {
 	t_assert(br->validbits == 0); /* data must be aligned */
 	t_assert(ts->hufftree != NULL); /* must have decoded huffman tree */
 
+	t_trace("---Decoding [huffman]---\n");
 	int c1 = tightB_brgetc(br);
 	t_assert(c1 != TIGHTEOF); /* can't be empty */
 	int c2 = tightB_brgetc(br);
@@ -181,6 +198,7 @@ eof:
 		tightB_writebyte(bw, sym);
 	}
 	t_assert(left == 0);
+	t_trace("Decoding huffman done!");
 }
 
 
@@ -196,9 +214,7 @@ TIGHT_API void tight_decode(tight_State *ts) {
 	tightB_initbw(&bw, ts, ts->wfd);
 
 	int mode = decodeheader(&br);
-	printf("decoded header\n");
-	fflush(stdout);
-	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
 	if (mode & MODEHUFF)
 		decodehuffman(&bw, &br);
+	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
 }

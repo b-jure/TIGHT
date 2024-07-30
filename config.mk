@@ -9,7 +9,7 @@ MANPREFIX = $(PREFIX)/share/man
 #OPTS = -O2
 
 # debug flags and definitions
-DDEFS = -DTIGHT_ASSERT
+DDEFS = -DTIGHT_ASSERT -DTIGHT_TRACE
 ASANFLAGS = -fsanitize=address -fsanitize=undefined
 DBGFLAGS = ${ASANFLAGS} -g
 

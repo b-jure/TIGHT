@@ -29,9 +29,19 @@
 #if defined(TIGHT_ASSERT)
 #undef NDBG
 #include <assert.h>
-#define t_assert(e)		assert(e)
+#define t_assert(e)			assert(e)
 #else
-#define t_assert(e)		((void)0)
+#define t_assert(e)			((void)0)
+#endif
+
+
+/* trace execution */
+#if defined(TIGHT_TRACE)
+#define t_tracef(fmt, ...)		fprintf(stderr, fmt, __VA_ARGS__)
+#define t_trace(msg)			fputs(msg, stderr)
+#else
+#define t_tracef(fmt, ...)		((void)0)
+#define t_trace(msg)			((void)0)
 #endif
 
 

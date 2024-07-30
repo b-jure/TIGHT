@@ -68,7 +68,7 @@ TIGHT_FUNC void tightB_initbr(BuffReader *br, tight_State *ts, int fd);
 TIGHT_FUNC int tightB_brfill(BuffReader *br, ulong *n);
 TIGHT_FUNC byte tightB_readnbits(BuffReader *br, int n);
 TIGHT_FUNC int tightB_readpending(BuffReader *br, int *out);
-TIGHT_FUNC off_t tightB_getoffsetr(BuffReader *br);
+TIGHT_FUNC off_t tightB_getoffset(BuffReader *br);
 TIGHT_FUNC void tightB_genMD5(tight_State *ts, ulong size, int fd, byte *out);
 
 

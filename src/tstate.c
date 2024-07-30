@@ -98,17 +98,27 @@ static unsigned int getsortedindex(TreeData **v, int low, int high, TreeData *td
 }
 
 
+#if defined(TIGHT_TRACE)
+/* print tree heap (debug) */
+static void printTreeHeap(TreeHeap *ht) {
+	t_trace("TreeHeap[");
+	for (int i = 0; i < ht->len; i++) {
+		t_tracef("%zu", ht->trees[i]->freq);
+		if (i + 1 < ht->len) t_trace(",");
+	}
+	t_trace("]\n");
+}
+#else
+#define printTreeHeap(ht)		((void)0)
+#endif
+
+
 /* insert tree into tree heap */
 static void sortedinsert(TreeHeap *ht, TreeData *td) {
 	int i = getsortedindex(ht->trees, 0, ht->len - 1, td);
 	memmove(&ht->trees[i + 1], &ht->trees[i], (ht->len - i) * sizeof(TreeData));
 	ht->trees[i] = td;
 	ht->len++;
-	printf("TreeHeap:");
-	for (i = 0; i < ht->len; i++)
-		printf(" [%zu]", ht->trees[i]->freq);
-	printf("\n");
-	fflush(stdout);
 }
 
 
@@ -143,21 +153,17 @@ void tightS_gencodes(tight_State *ts, const size_t *freqs) {
 		if (combfreqs[i] != 0)
 			ht.trees[ht.len++] = tightT_newleaf(ts, combfreqs[i], i);
 
-	printf("built %d leaf trees\n", ht.len);
-	fflush(stdout);
 	/* sort leaf trees */
 	tightqsort(ht.trees, 0, ht.len - 1);
-	printf("TreeHeap:");
-	for (i = 0; i < ht.len; i++)
-		printf(" [%zu]", ht.trees[i]->freq);
-	printf("\n");
-	fflush(stdout);
 
+	t_trace("---Heap---\n");
+	printTreeHeap(&ht);
 	/* build huffman tree and frequency array */
 	while (ht.len > 1) {
 		t1 = ht.trees[--ht.len]; /* left subtree */
 		t2 = ht.trees[--ht.len]; /* right subtree */
 		sortedinsert(&ht, tightT_newparent(ts, t1, t2, fi)); /* t1 <- p -> t2 */
+		printTreeHeap(&ht);
 		combfreqs[fi] = t1->c + t2->freq;
 		parents[t1->c] = -fi; /* left */
 		parents[t2->c] = fi; /* right */
@@ -172,13 +178,13 @@ void tightS_gencodes(tight_State *ts, const size_t *freqs) {
 	/* build huffman codes */
 	int nbits, code, y;
 	memset(ts->codes, 0, sizeof(ts->codes));
+	t_trace("---Codes---\n");
 	for (i = 0; i < TIGHTBYTES; i++) {
 		if (combfreqs[i] == 0) /* skip 0 frequency bytes */
 			continue;
 		y = i; /* preserve 'i' */
 		nbits = code = 0;
 		/* build the huffman code */
-		printf("parents[%d]: ", i);
 		while (t_abs(parents[y]) != y) { /* while not tree root */
 			code |= (parents[y] >= 0) << nbits; /* 1 if right, 0 if left */
 			y = t_abs(parents[y]); /* follow the node to root */
@@ -191,11 +197,9 @@ void tightS_gencodes(tight_State *ts, const size_t *freqs) {
 		} else {
 			ts->codes[i].code = ts->codes[i].nbits = 0;
 		}
-		printf("<code> ");
+		t_tracef("[%d]=", i);
 		tightD_printbits(ts->codes[i].code, nbits);
-		printf(", <nbits> %d", nbits);
-		printf("\n");
-		fflush(stdout);
+		t_trace("\n");
 	}
 }
 

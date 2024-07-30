@@ -90,6 +90,9 @@ t_noret tightD_headererr(tight_State *ts, const char *extra) {
 }
 
 
+/* functions for tracing encoder/decoder execution */
+#if defined(TIGHT_TRACE)
+
 /* debug code */
 void tightD_printbits(int code, int nbits) {
 	char buf[20];
@@ -97,7 +100,7 @@ void tightD_printbits(int code, int nbits) {
 	buf[nbits] = '\0';
 	for (int i = 0; nbits-- > 0; i++)
 		buf[i] = '0' + ((code & (1 << nbits)) > 0);
-	printf("%s", buf);
+	t_tracef("%s", buf);
 }
 
 
@@ -106,6 +109,7 @@ static void printtree(const TreeData *t) {
 	const TreeData *stack[TIGHTCODES];
 	int len = 0;
 
+	t_trace("---Tree---\n");
 	memset(stack, 0, sizeof(stack));
 	stack[len++] = t;
 	stack[len++] = NULL;
@@ -113,17 +117,17 @@ static void printtree(const TreeData *t) {
 		const TreeData *curr = stack[0];
 		memmove(stack, stack + 1, --len * sizeof(stack[0]));
 		if (curr == NULL) { /* newline? */
-			printf("\n");
+			t_trace("\n");
 			if (len > 0)
 				stack[len++] = NULL;
 		} else if (curr->left) {
 			t_assert(curr->right);
 			stack[len++] = curr->left;
 			stack[len++] = curr->right;
-			printf("P(%d)", curr->c);
+			t_tracef("P(%d)", curr->c);
 		} else {
 			t_assert(curr->left == NULL);
-			printf("L(%d)", curr->c);
+			t_tracef("L(%d)", curr->c);
 		}
 	}
 	t_assert(len == 0);
@@ -133,5 +137,6 @@ static void printtree(const TreeData *t) {
 /* debug encoding tree */
 void tightD_printtree(const TreeData *root) {
 	printtree(root);
-	fflush(stdout);
 }
+
+#endif /* TIGHT_TRACE */

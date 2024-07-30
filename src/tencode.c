@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(TIGHT_TRACE)
+#include <ctype.h>
+#endif
 
 #include "tdebug.h"
 #include "tinternal.h"
@@ -64,7 +67,7 @@ static const size_t internal_freqs[TIGHTBYTES] = {
 
 /* write 'magic' */
 static inline void encodemagic(BuffWriter *bw) {
-	/* unroll */
+	t_trace("---Encoding [magic]---\n");
 	t_assert(bw->len == 0 && bw->validbits == 0);
 	tightB_writebyte(bw, MAGIC[0]);
 	tightB_writebyte(bw, MAGIC[1]);
@@ -74,6 +77,7 @@ static inline void encodemagic(BuffWriter *bw) {
 	tightB_writebyte(bw, MAGIC[5]);
 	tightB_writebyte(bw, MAGIC[6]);
 	tightB_writebyte(bw, MAGIC[7]);
+	t_tracef("%.*s\n", (int)sizeof(MAGIC), MAGIC);
 }
 
 
@@ -81,29 +85,39 @@ static inline void encodemagic(BuffWriter *bw) {
 static void encodetree(BuffWriter *bw, TreeData *ht) {
 	if (ht->left) { /* parent tree ? */
 		tightB_writenbits(bw, 0, 1); /* mark as parent */
+		t_trace("[");
 		encodetree(bw, ht->left); /* traverse left */
+		t_trace(", ");
 		encodetree(bw, ht->right); /* traverse right */
+		t_trace("]");
 	} else { /* leaf */
 		t_assert(ht->right == NULL && 0 <= ht->c && ht->c < 256);
 		tightB_writenbits(bw, 1, 1); /* mark as leaf */
+		t_tracef((isgraph(ht->c) ? "%c" : "%hu"), ht->c);
 		tightB_writenbits(bw, ht->c, 8); /* write symbol */
 	}
 }
 
 
-static inline void encodebindata(BuffWriter *bw) {
+static inline void encodebindata(BuffWriter *bw, int mode) {
 	t_assert(bw->ts->hufftree);
-	encodetree(bw, bw->ts->hufftree);
+	if (mode & MODEHUFF) {
+		t_trace("---Encoding [tree]----\n");
+		encodetree(bw, bw->ts->hufftree);
+		t_trace("\n");
+	}
+	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
 	tightB_writepending(bw);
 	tightB_writefile(bw);
 }
 
 
 /* write MD5 digest */
-static inline void encodechecksum(BuffWriter *bw) {
+static inline void encodechecksum(BuffWriter *bw, int mode) {
 	tight_State *ts = bw->ts;
 	byte md5digest[16];
 
+	(void)mode; /* unused for now */
 	/* get size of 'bindata' */
 	off_t bindatasz = lseek(bw->fd, 0, SEEK_CUR) - TIGHTbindataoffset;
 	if (t_unlikely(bindatasz < 0))
@@ -116,7 +130,7 @@ static inline void encodechecksum(BuffWriter *bw) {
 	tightB_genMD5(ts, bindatasz, bw->fd, md5digest);
 	t_assert(lseek(bw->fd, 0, SEEK_CUR) == (off_t)TIGHTbindataoffset + bindatasz);
 
-	/* unroll */
+	t_trace("---Encoding [checksum MD5]---\n");
 	tightB_writebyte(bw, md5digest[0]);
 	tightB_writebyte(bw, md5digest[0]);
 	tightB_writebyte(bw, md5digest[1]);
@@ -136,14 +150,21 @@ static inline void encodechecksum(BuffWriter *bw) {
 	tightB_writebyte(bw, md5digest[14]);
 	tightB_writebyte(bw, md5digest[15]);
 	tightB_writefile(bw);
+#if defined(TIGHT_TRACE)
+	for (uint i = 0; i < sizeof(md5digest); i++) {
+		t_tracef("%02X", md5digest[i]);
+		if ((i + 1) % 2 == 0) t_trace(" ");
+	}
+	t_trace("\n");
+#endif
 }
 
 
 /* compress/encode header */
-static inline void encodeheader(BuffWriter *bw) {
+static inline void encodeheader(BuffWriter *bw, int mode) {
 	encodemagic(bw);
-	encodebindata(bw);
-	encodechecksum(bw);
+	encodebindata(bw, mode);
+	encodechecksum(bw, mode);
 }
 
 
@@ -152,16 +173,15 @@ static void encodehuffman(BuffReader *br, BuffWriter *bw) {
 	tight_State *ts = br->ts;
 	int c;
 
-	printf("---encoding---\n");
+	t_trace("---Encoding [huffman]---\n");
 	while ((c = tightB_brgetc(br)) != TIGHTEOF) {
 		t_assert(c >= 0 && c <= UCHAR_MAX);
 		HuffCode *hc = &ts->codes[c];
 		tightD_printbits(hc->code, hc->nbits);
-		printf(" ");
+		t_trace(" ");
 		tightB_writenbits(bw, hc->code, hc->nbits);
 	}
-	printf("\n---end---\n");
-	fflush(stdout);
+	t_trace("\n");
 }
 
 
@@ -197,7 +217,7 @@ static void encodeeof(BuffWriter *bw) {
 
 /* huffman encoding */
 static void encodefile(BuffWriter *bw, BuffReader *br, int mode) {
-	encodeheader(bw);
+	encodeheader(bw, mode);
 	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
 	if (mode & MODEHUFF) 
 		encodehuffman(br, bw);
