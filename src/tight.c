@@ -232,12 +232,14 @@ int main(int argc, const char **argv) {
 	int rfd = openfile(ctx.infile, O_RDONLY, 0);
 	int wfd = openfile(ctx.outfile, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
 	tight_setfiles(ts, rfd, wfd);
-	mode = getmode(&ctx);
 	if (ctx.decode) { /* decode */
 		tight_decode(ts);
 	} else { /* encode */
+		mode = getmode(&ctx);
 		if (mode & MODEHUFF) {
 			getfrequencies(ts, rfd, freqs);
+			if (lseek(rfd, 0, SEEK_SET) < 0)
+				terrorf("seek error input file: %s", strerror(errno));
 			tight_encode(ts, mode, freqs);
 		} else {
 			tight_encode(ts, mode, NULL);

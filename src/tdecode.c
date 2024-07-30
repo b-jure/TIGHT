@@ -73,8 +73,8 @@ static void verifychecksum(BuffReader *br, byte *checksum, size_t sumsize,
 						   long bindatasize) 
 {
 	byte *md5digest = tightA_malloc(br->ts, sumsize * sizeof(byte));
-	t_assert(sumsize >= 16); /* NOTE(jure): current version must be MD5 */
-	tightB_genMD5(br, bindatasize, md5digest);
+	t_assert(sumsize >= 16); /* NOTE(jure): currently only MD5 is used */
+	tightB_genMD5(br->ts, bindatasize, br->fd, md5digest);
 	int res = memcmp(md5digest, checksum, sumsize);
 	tightA_free(br->ts, md5digest, sumsize * sizeof(byte));
 	if (t_unlikely(res != 0))
@@ -83,8 +83,7 @@ static void verifychecksum(BuffReader *br, byte *checksum, size_t sumsize,
 
 
 /* decode 'TIGHT' header */
-static int decodeheader(BuffWriter *bw, BuffReader *br) {
-	tight_State *ts = bw->ts;
+static int decodeheader(BuffReader *br) {
 	byte checksum[16];
 
 	/* decode 'magic' */
@@ -99,21 +98,13 @@ static int decodeheader(BuffWriter *bw, BuffReader *br) {
 	t_assert(mode & MODEALL);
 
 	/* start of 'bindata' for 'verifychecksum' */
-	long bindatastart = lseek(br->fd, 0, SEEK_CUR);
-	if (t_unlikely(bindatastart < 0))
-		tightD_errnoerr(ts, "lseek error in input file");
-
-	/* decode 'bindata' */
-	printf("decoding bindata\n");
-	fflush(stdout);
+	off_t bindatastart = tightB_getoffsetr(br);
 	decodebindata(br, mode);
-	printf("decoded bindata\n");
-	fflush(stdout);
-
-	long bindatasize = lseek(br->fd, 0, SEEK_CUR);
-	if (t_unlikely(bindatasize < 0))
-		tightD_errnoerr(ts, "lseek error in input file");
+	off_t bindatasize = tightB_getoffsetr(br);
+	t_assert(bindatasize > bindatastart);
 	bindatasize -= bindatastart;
+	if (t_unlikely(lseek(br->fd, bindatastart, SEEK_SET) < 0))
+		tightD_errnoerr(br->ts, "seek error in input file");
 
 	/* decode 'checksum' and verify it */
 	decodechecksum(br, checksum, sizeof(checksum));
@@ -204,7 +195,7 @@ TIGHT_API void tight_decode(tight_State *ts) {
 	tightB_initbr(&br, ts, ts->rfd);
 	tightB_initbw(&bw, ts, ts->wfd);
 
-	int mode = decodeheader(&bw, &br);
+	int mode = decodeheader(&br);
 	printf("decoded header\n");
 	fflush(stdout);
 	if (mode & MODELZW) {/* TODO(jure): implement LZW */}

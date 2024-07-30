@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include "tstate.h"
+#include "tdebug.h"
 
 
 /* header magic */
@@ -82,13 +83,16 @@ static void tightqsort(TreeData **v, int start, int end) {
 
 
 /* binary search */
-static unsigned int getsortedindex(TreeData **v, int l, int h, TreeData *td) {
+static unsigned int getsortedindex(TreeData **v, int low, int high, TreeData *td) {
 	int mid;
 
-	while (l < h) {
-		mid = (l + h) >> 1;
-		if (v[mid]->freq > td->freq) l = mid;
-		else h = mid;
+	if (t_unlikely(low >= high)) return low;
+	while (low <= high) {
+		mid = low + ((high - low) >> 1);
+		if (v[mid]->freq > td->freq) 
+			low = mid + 1;
+		else
+			high = mid - 1;
 	}
 	return mid;
 }
@@ -96,22 +100,27 @@ static unsigned int getsortedindex(TreeData **v, int l, int h, TreeData *td) {
 
 /* insert tree into tree heap */
 static void sortedinsert(TreeHeap *ht, TreeData *td) {
-	unsigned int i = getsortedindex(ht->trees, 0, ht->len - 1, td);
-	memmove(&ht->trees[i + 1], &ht->trees[i], ht->len - i);
+	int i = getsortedindex(ht->trees, 0, ht->len - 1, td);
+	memmove(&ht->trees[i + 1], &ht->trees[i], (ht->len - i) * sizeof(TreeData));
 	ht->trees[i] = td;
 	ht->len++;
+	printf("TreeHeap:");
+	for (i = 0; i < ht->len; i++)
+		printf(" [%zu]", ht->trees[i]->freq);
+	printf("\n");
+	fflush(stdout);
 }
 
 
 /* reverse bits */
-static inline unsigned reversebits(unsigned code, int len) {
+static inline unsigned reversebits(uint code, int len) {
 	register uint res = 0;
-	t_assert(len > 0);
+	t_assert(0 < len  && len < 16);
 	do {
 		res |= code & 1;
 		code >>= 1;
 		res <<= 1;
-	} while (len-- > 0);
+	} while (--len > 0);
 	return res >> 1;
 }
 
@@ -120,56 +129,73 @@ static inline unsigned reversebits(unsigned code, int len) {
 void tightS_gencodes(tight_State *ts, const size_t *freqs) {
 	TreeHeap ht = { 0 }; /* huffman tree stack */
 	size_t combfreqs[TIGHTCODES]; /* freqs + combined frequencies */
-	int parentindexes[TIGHTCODES]; /* parent frequency indexes in 'combfreqs' */
+	int parents[TIGHTCODES]; /* parent frequency indexes in 'combfreqs' */
 	TreeData *t1, *t2; /* left/right subtree */
 	int fi = TIGHTBYTES; /* next available position in 'combfreqs' */
 	int i; /* loop counter */
 
 	/* copy over counts */
-	memcpy(combfreqs, freqs, TIGHTBYTES);
-	memset(&combfreqs[TIGHTBYTES], 0, TIGHTBYTES);
+	memcpy(combfreqs, freqs, TIGHTBYTES * sizeof(size_t));
+	memset(&combfreqs[TIGHTBYTES], 0, TIGHTBYTES * sizeof(size_t));
 
 	/* make leafs */
 	for (i = 0; i < TIGHTBYTES; i++)
 		if (combfreqs[i] != 0)
 			ht.trees[ht.len++] = tightT_newleaf(ts, combfreqs[i], i);
 
+	printf("built %d leaf trees\n", ht.len);
+	fflush(stdout);
 	/* sort leaf trees */
 	tightqsort(ht.trees, 0, ht.len - 1);
+	printf("TreeHeap:");
+	for (i = 0; i < ht.len; i++)
+		printf(" [%zu]", ht.trees[i]->freq);
+	printf("\n");
+	fflush(stdout);
 
 	/* build huffman tree and frequency array */
 	while (ht.len > 1) {
 		t1 = ht.trees[--ht.len]; /* left subtree */
 		t2 = ht.trees[--ht.len]; /* right subtree */
 		sortedinsert(&ht, tightT_newparent(ts, t1, t2, fi)); /* t1 <- p -> t2 */
-		combfreqs[fi] = t1->freq + t2->freq;
-		parentindexes[t1->c] = -fi; /* left */
-		parentindexes[t2->c] = fi; /* right */
+		combfreqs[fi] = t1->c + t2->freq;
+		parents[t1->c] = -fi; /* left */
+		parents[t2->c] = fi; /* right */
 		fi++; /* advance index into 'combfreqs' */
 	}
 	t_assert(ht.len == 1);
 	t1 = ht.trees[--ht.len]; /* pop huffman tree */
-	parentindexes[t1->c] = t1->c; /* mark as no parent (root) */
+	parents[t1->c] = t1->c;
 	ts->hufftree = t1; /* anchor to state */
 
+	tightD_printtree(ts->hufftree);
 	/* build huffman codes */
 	int nbits, code, y;
+	memset(ts->codes, 0, sizeof(ts->codes));
 	for (i = 0; i < TIGHTBYTES; i++) {
 		if (combfreqs[i] == 0) /* skip 0 frequency bytes */
 			continue;
 		y = i; /* preserve 'i' */
 		nbits = code = 0;
 		/* build the huffman code */
-		while (t_abs(parentindexes[y]) != y) { /* while not tree root */
-			code |= (parentindexes[y] >= 0) << nbits; /* 1 if right, 0 if left */
-			y = t_abs(parentindexes[y]); /* follow the node to root */
+		printf("parents[%d]: ", i);
+		while (t_abs(parents[y]) != y) { /* while not tree root */
+			code |= (parents[y] >= 0) << nbits; /* 1 if right, 0 if left */
+			y = t_abs(parents[y]); /* follow the node to root */
 			nbits++; /* increment number of bits in 'code' */
 		}
-		t_assert(nbits > 0 || parentindexes[y] == t1->c);
+		t_assert(nbits > 0 || parents[y] == t1->c);
 		if (t_likely(nbits > 0)) {
 			ts->codes[i].code = reversebits(code, nbits);
 			ts->codes[i].nbits = nbits;
+		} else {
+			ts->codes[i].code = ts->codes[i].nbits = 0;
 		}
+		printf("<code> ");
+		tightD_printbits(ts->codes[i].code, nbits);
+		printf(", <nbits> %d", nbits);
+		printf("\n");
+		fflush(stdout);
 	}
 }
 

@@ -56,6 +56,11 @@
 #endif
 
 
+#if !defined(SSIZE_MAX)
+#define SSIZE_MAX	((ssize_t)(SIZE_MAX>>1))
+#endif
+
+
 /* typedefs */
 typedef unsigned char		byte;
 typedef unsigned short		ushrt;

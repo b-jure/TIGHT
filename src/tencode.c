@@ -1,6 +1,5 @@
 #include <fcntl.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -101,12 +100,12 @@ static inline void encodebindata(BuffWriter *bw) {
 
 
 /* write MD5 digest */
-static inline void encodechecksum(BuffWriter *bw, BuffReader *br) {
+static inline void encodechecksum(BuffWriter *bw) {
 	tight_State *ts = bw->ts;
 	byte md5digest[16];
 
 	/* get size of 'bindata' */
-	long bindatasz = lseek(bw->fd, 0, SEEK_CUR) - TIGHTbindataoffset;
+	off_t bindatasz = lseek(bw->fd, 0, SEEK_CUR) - TIGHTbindataoffset;
 	if (t_unlikely(bindatasz < 0))
 		tightD_errnoerr(ts, "lseek error in output file");
 	t_assert(bindatasz > 0);
@@ -114,9 +113,8 @@ static inline void encodechecksum(BuffWriter *bw, BuffReader *br) {
 	/* seek to start of the 'bindata' */
 	if (t_unlikely(lseek(bw->fd, TIGHTbindataoffset, SEEK_SET) < 0))
 		tightD_errnoerr(ts, "lseek error in output file");
-	br->fd = bw->fd; /* set file descriptor that contains encoded 'bindata' */
-	tightB_genMD5(br, bindatasz, md5digest);
-	br->fd = ts->rfd; /* restore read descriptor */
+	tightB_genMD5(ts, bindatasz, bw->fd, md5digest);
+	t_assert(lseek(bw->fd, 0, SEEK_CUR) == (off_t)TIGHTbindataoffset + bindatasz);
 
 	/* unroll */
 	tightB_writebyte(bw, md5digest[0]);
@@ -142,10 +140,10 @@ static inline void encodechecksum(BuffWriter *bw, BuffReader *br) {
 
 
 /* compress/encode header */
-static inline void encodeheader(BuffWriter *bw, BuffReader *br) {
+static inline void encodeheader(BuffWriter *bw) {
 	encodemagic(bw);
 	encodebindata(bw);
-	encodechecksum(bw, br);
+	encodechecksum(bw);
 }
 
 
@@ -154,14 +152,15 @@ static void encodehuffman(BuffReader *br, BuffWriter *bw) {
 	tight_State *ts = br->ts;
 	int c;
 
+	printf("---encoding---\n");
 	while ((c = tightB_brgetc(br)) != TIGHTEOF) {
 		t_assert(c >= 0 && c <= UCHAR_MAX);
 		HuffCode *hc = &ts->codes[c];
-		printf("writing code\n");
-		fflush(stdout);
+		tightD_printbits(hc->code, hc->nbits);
+		printf(" ");
 		tightB_writenbits(bw, hc->code, hc->nbits);
 	}
-	printf("written all\n");
+	printf("\n---end---\n");
 	fflush(stdout);
 }
 
@@ -193,16 +192,15 @@ static void encodeeof(BuffWriter *bw) {
 	}
 	bw->validbits = 0;
 	tightB_writefile(bw); /* write all */
-	printf("written eof\n");
-	fflush(stdout);
 }
 
 
 /* huffman encoding */
 static void encodefile(BuffWriter *bw, BuffReader *br, int mode) {
-	encodeheader(bw, br);
+	encodeheader(bw);
 	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
-	if (mode & MODEHUFF) encodehuffman(br, bw);
+	if (mode & MODEHUFF) 
+		encodehuffman(br, bw);
 	encodeeof(bw);
 }
 

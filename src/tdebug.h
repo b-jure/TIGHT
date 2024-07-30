@@ -2,9 +2,11 @@
 #define TIGHTDEBUG_H
 
 #include <errno.h>
+#include <string.h>
 
 #include "tight.h"
 #include "tinternal.h"
+#include "ttree.h"
 
 
 /* debug message format */
@@ -35,5 +37,8 @@ TIGHT_FUNC void tightD_warn_(tight_State *ts, const char *wfmt, ...);
 
 TIGHT_FUNC t_noret tightD_memerror(tight_State *ts);
 TIGHT_FUNC t_noret tightD_headererr(tight_State *ts, const char *extra);
+
+TIGHT_FUNC void tightD_printbits(int code, int nbits);
+TIGHT_FUNC void tightD_printtree(const TreeData *root);
 
 #endif
