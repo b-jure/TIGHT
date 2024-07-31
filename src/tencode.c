@@ -102,7 +102,7 @@ static void encodetree(BuffWriter *bw, TreeData *ht) {
 static inline void encodebindata(BuffWriter *bw, int mode) {
 	t_assert(bw->ts->hufftree);
 	if (mode & MODEHUFF) {
-		t_trace("---Encoding [tree]----\n");
+		t_trace("---Encoding [tree]---\n");
 		encodetree(bw, bw->ts->hufftree);
 		t_trace("\n");
 	}
@@ -114,49 +114,33 @@ static inline void encodebindata(BuffWriter *bw, int mode) {
 
 /* write MD5 digest */
 static inline void encodechecksum(BuffWriter *bw, int mode) {
-	tight_State *ts = bw->ts;
-	byte md5digest[16];
+	byte checksum[16];
 
-	(void)mode; /* unused for now */
-	/* get size of 'bindata' */
-	off_t bindatasz = lseek(bw->fd, 0, SEEK_CUR) - TIGHTbindataoffset;
-	if (t_unlikely(bindatasz < 0))
-		tightD_errnoerr(ts, "lseek error in output file");
+	(void)mode; /* currently unused */
+	t_assert(bw->len == 0); /* buffer must be flushed */
+	off_t bindatasz = tightB_seekwriter(bw, 0, SEEK_CUR) - TIGHTbindataoffset;
 	t_assert(bindatasz > 0);
-
-	/* seek to start of the 'bindata' */
-	if (t_unlikely(lseek(bw->fd, TIGHTbindataoffset, SEEK_SET) < 0))
-		tightD_errnoerr(ts, "lseek error in output file");
-	tightB_genMD5(ts, bindatasz, bw->fd, md5digest);
-	t_assert(lseek(bw->fd, 0, SEEK_CUR) == (off_t)TIGHTbindataoffset + bindatasz);
-
+	tightB_seekwriter(bw, TIGHTbindataoffset, SEEK_SET);
+	tightB_genMD5(bw->ts, bindatasz, bw->fd, checksum);
+	t_assert(lseek(bw->fd, 0, SEEK_CUR) == TIGHTbindataoffset + bindatasz);
 	t_trace("---Encoding [checksum MD5]---\n");
-	tightB_writebyte(bw, md5digest[0]);
-	tightB_writebyte(bw, md5digest[0]);
-	tightB_writebyte(bw, md5digest[1]);
-	tightB_writebyte(bw, md5digest[2]);
-	tightB_writebyte(bw, md5digest[3]);
-	tightB_writebyte(bw, md5digest[4]);
-	tightB_writebyte(bw, md5digest[5]);
-	tightB_writebyte(bw, md5digest[6]);
-	tightB_writebyte(bw, md5digest[7]);
-	tightB_writebyte(bw, md5digest[8]);
-	tightB_writebyte(bw, md5digest[8]);
-	tightB_writebyte(bw, md5digest[9]);
-	tightB_writebyte(bw, md5digest[10]);
-	tightB_writebyte(bw, md5digest[11]);
-	tightB_writebyte(bw, md5digest[12]);
-	tightB_writebyte(bw, md5digest[13]);
-	tightB_writebyte(bw, md5digest[14]);
-	tightB_writebyte(bw, md5digest[15]);
-	tightB_writefile(bw);
-#if defined(TIGHT_TRACE)
-	for (uint i = 0; i < sizeof(md5digest); i++) {
-		t_tracef("%02X", md5digest[i]);
-		if ((i + 1) % 2 == 0) t_trace(" ");
-	}
-	t_trace("\n");
-#endif
+	tightB_writebyte(bw, checksum[0]);
+	tightB_writebyte(bw, checksum[1]);
+	tightB_writebyte(bw, checksum[2]);
+	tightB_writebyte(bw, checksum[3]);
+	tightB_writebyte(bw, checksum[4]);
+	tightB_writebyte(bw, checksum[5]);
+	tightB_writebyte(bw, checksum[6]);
+	tightB_writebyte(bw, checksum[7]);
+	tightB_writebyte(bw, checksum[8]);
+	tightB_writebyte(bw, checksum[9]);
+	tightB_writebyte(bw, checksum[10]);
+	tightB_writebyte(bw, checksum[11]);
+	tightB_writebyte(bw, checksum[12]);
+	tightB_writebyte(bw, checksum[13]);
+	tightB_writebyte(bw, checksum[14]);
+	tightB_writebyte(bw, checksum[15]);
+	tightD_printchecksum(checksum, sizeof(checksum));
 }
 
 
@@ -165,6 +149,7 @@ static inline void encodeheader(BuffWriter *bw, int mode) {
 	encodemagic(bw);
 	encodebindata(bw, mode);
 	encodechecksum(bw, mode);
+	tightB_writefile(bw); /* write all */
 }
 
 
@@ -173,12 +158,12 @@ static void encodehuffman(BuffReader *br, BuffWriter *bw) {
 	tight_State *ts = br->ts;
 	int c;
 
+	t_assert(bw->validbits == 0);
 	t_trace("---Encoding [huffman]---\n");
 	while ((c = tightB_brgetc(br)) != TIGHTEOF) {
 		t_assert(c >= 0 && c <= UCHAR_MAX);
 		HuffCode *hc = &ts->codes[c];
-		tightD_printbits(hc->code, hc->nbits);
-		t_trace(" ");
+		t_trace("("); tightD_printbits(hc->code, hc->nbits); t_trace(")");
 		tightB_writenbits(bw, hc->code, hc->nbits);
 	}
 	t_trace("\n");
@@ -188,28 +173,32 @@ static void encodehuffman(BuffReader *br, BuffWriter *bw) {
 /* 
  * Write 'eof' for huffman codes; last 'EOFBITS'
  * of the last byte encode how many bits to read
- * from the byte before it + 'EOFBIAS'.
+ * starting from the byte before it + 'EOFBIAS'.
  * For example, in case last 'EOFBITS' are '001' (1),
- * then 7 bits will be read from the previous byte.
+ * then 7 bits will be read starting from the previous byte.
  */
 static void encodeeof(BuffWriter *bw) {
-	int extra = 0;
-
+	t_trace("---Encoding [huffman-eof]---\n");
 	if (bw->validbits >= 8) {
+		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 		tightB_writebyte(bw, bw->tmpbuf);
 		bw->tmpbuf >>= 8;
 		bw->validbits -= 8;
-		extra = 2;
 	}
 	if (bw->validbits <= 5) { /* 'eof' can fit ? */
 		bw->tmpbuf <<= 8 - bw->validbits; /* shift valid bits */
-		bw->tmpbuf |= bw->validbits + extra; /* add 'eof' bits */
+		bw->tmpbuf |= bw->validbits; /* add 'eof' bits */
 		tightB_writebyte(bw, bw->tmpbuf);
+		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 	} else { /* 'eof' must be in separate byte */
-		t_assert(EOFBIAS <= bw->validbits);
+		t_assert(EOFBIAS <= bw->validbits && bw->validbits <= 8);
+		tightB_writenbits(bw, 0, 8 - bw->validbits);
 		tightB_writebyte(bw, bw->tmpbuf);
+		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 		tightB_writebyte(bw, bw->validbits - EOFBIAS);
+		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 	}
+	t_trace("\n");
 	bw->validbits = 0;
 	tightB_writefile(bw); /* write all */
 }
@@ -218,6 +207,7 @@ static void encodeeof(BuffWriter *bw) {
 /* huffman encoding */
 static void encodefile(BuffWriter *bw, BuffReader *br, int mode) {
 	encodeheader(bw, mode);
+	t_assert(bw->len == 0 && bw->validbits == 0);
 	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
 	if (mode & MODEHUFF) 
 		encodehuffman(br, bw);
@@ -249,4 +239,5 @@ TIGHT_API void tight_encode(tight_State *ts, int mode, const size_t *freqs) {
 	if (mode & MODEHUFF) /* using huffman coding ? */
 		tightS_gencodes(ts, freqs ? freqs : internal_freqs);
 	encodefile(&bw, &br, mode);
+	t_trace("\n***Encoding complete!***\n\n");
 }

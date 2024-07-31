@@ -39,9 +39,13 @@
 #if defined(TIGHT_TRACE)
 #define t_tracef(fmt, ...)		fprintf(stderr, fmt, __VA_ARGS__)
 #define t_trace(msg)			fputs(msg, stderr)
+
+#define t_tracelong(pre,block,pos)		{ t_trace(pre); block; t_trace(pos); }
 #else
 #define t_tracef(fmt, ...)		((void)0)
 #define t_trace(msg)			((void)0)
+
+#define t_tracelong(pre, block, pos)	((void)0)
 #endif
 
 

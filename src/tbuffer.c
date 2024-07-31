@@ -161,7 +161,7 @@ byte tightB_readnbits(BuffReader *br, int n) {
 int tightB_readpending(BuffReader *br, int *out) {
 	int n = br->validbits;
 	if (n == 0) 
-		return  0;
+		return 0;
 	if (out) 
 		*out = br->tmpbuf & (((ushrt)~(0)) >> (TMPBsize - n));
 	br->validbits = 0;
@@ -170,7 +170,7 @@ int tightB_readpending(BuffReader *br, int *out) {
 
 
 /* get adjusted offset */
-off_t tightB_getoffset(BuffReader *br) {
+off_t tightB_offsetreader(BuffReader *br) {
 	off_t n = lseek(br->fd, 0, SEEK_CUR);
 	if (t_unlikely(n < 0))
 		tightD_errnoerr(br->ts, "lseek error in input file");
@@ -191,8 +191,9 @@ void tightB_genMD5(tight_State *ts, ulong size, int fd, byte *out) {
 		tightB_brfill(&br, &n);
 		size -= n;
 		tight5_update(&ctx, br.current - 1, n);
-		br.n = 0;
+		br.n -= --n;
 	} while (size > 0);
+	t_assert(br.n == 0);
 	t_assert(size == 0);
 	tight5_final(&ctx, out);
 }
@@ -223,27 +224,27 @@ void tightB_writefile(BuffWriter *bw) {
 
 /* write 'byte' into 'buf' */
 void tightB_writebyte(BuffWriter *bw, byte byte) {
-	if (t_unlikely(bw->len + 1 > TIGHT_WBUFFSIZE))
-		tightB_writefile(bw);
+	if (t_unlikely(bw->len >= sizeof(bw->buf)))
+		tightB_writefile(bw); /* flush */
 	bw->buf[bw->len++] = byte;
 }
 
 
 /* write 'ushrt' into 'buf' */
-void tightB_writeshort(BuffWriter *bw, ushrt shrt) {
-	tightB_writebyte(bw, shrt & 0xFF);
+static inline void writeshort(BuffWriter *bw, ushrt shrt) {
+	tightB_writebyte(bw, shrt & 0xff);
 	tightB_writebyte(bw, shrt >> 8);
 }
 
 
 /* write bits to 'tmpbuf' */
 void tightB_writenbits(BuffWriter *bw, int code, int len) {
+	bw->tmpbuf |= (ushrt)code << bw->validbits;
 	if (bw->validbits > TMPBsize - len) { /* would overflow ? */
-		tightB_writeshort(bw, bw->tmpbuf);
+		writeshort(bw, bw->tmpbuf);
 		bw->tmpbuf = (ushrt)code >> (TMPBsize - bw->validbits);
 		bw->validbits += len - TMPBsize;
 	} else { /* no overflow */
-		bw->tmpbuf |= (ushrt)code << bw->validbits;
 		bw->validbits += len;
 	}
 }
@@ -254,6 +255,7 @@ void tightB_writepending(BuffWriter *bw) {
 	while (bw->validbits > 0) {
 		if (bw->validbits >= 8) {
 			tightB_writebyte(bw, bw->tmpbuf);
+			bw->tmpbuf >>= 8;
 			bw->validbits -= 8;
 		} else {
 			tightB_writenbits(bw, 0, 8 - bw->validbits);
@@ -264,6 +266,14 @@ void tightB_writepending(BuffWriter *bw) {
 	t_assert(bw->validbits == 0); /* must be exactly '0' */
 }
 
+
+/* lseek for writer */
+off_t tightB_seekwriter(BuffWriter *bw, off_t off, int whence) {
+	off_t offset = lseek(bw->fd, off, whence);
+	if (t_unlikely(offset < 0))
+		tightD_errnoerr(bw->ts, "lseek error in output file");
+	return offset;
+}
 
 
 /* 

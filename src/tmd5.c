@@ -1,5 +1,5 @@
 /************************************************************************
- * Copyright (C) 2024 B. Jure, refer to 'pfc.h' for license details.
+ * Copyright (C) 2024 B. Jure, refer to 'tight.h' for license details.
  * Derived from the RSA Data Security, Inc. MD5 Message-Digest Algorithm.
  ************************************************************************/
 
@@ -102,7 +102,6 @@ void tight5_init(MD5ctx *ctx) {
 /* encode 'word's from 'in' into 'out' */
 static inline void encode(byte *out, word *in, uint len) {
 	t_assert(len % 4 == 0);
-	/* unroll */
 	for (uint i = 0, j = 0; j < len; i++, j += 4) {
 		out[j] = in[i] & 0xFF;
 		out[j+1] = (in[i] >> 8) & 0xFF;

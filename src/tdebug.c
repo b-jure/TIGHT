@@ -4,7 +4,6 @@
 
 #include "tdebug.h"
 #include "tbuffer.h"
-#include "tstate.h"
 
 
 static void errorfmt(tight_State *ts, const char *fmt, va_list ap) {
@@ -95,7 +94,7 @@ t_noret tightD_headererr(tight_State *ts, const char *extra) {
 
 /* debug code */
 void tightD_printbits(int code, int nbits) {
-	char buf[20];
+	char buf[64];
 
 	buf[nbits] = '\0';
 	for (int i = 0; nbits-- > 0; i++)
@@ -137,6 +136,16 @@ static void printtree(const TreeData *t) {
 /* debug encoding tree */
 void tightD_printtree(const TreeData *root) {
 	printtree(root);
+}
+
+
+/* debug checksum */
+void tightD_printchecksum(byte *checksum, size_t size) {
+	for (uint i = 0; i < size; i++) {
+		t_tracef("%02X", checksum[i]);
+		if ((i + 1) % 2 == 0) t_trace(" ");
+	}
+	t_trace("\n");
 }
 
 #endif /* TIGHT_TRACE */

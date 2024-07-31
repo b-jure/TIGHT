@@ -20,15 +20,15 @@
 
 
 /* size of 'tight_State' */
-#define SIZEOFSTATE		sizeof(tight_State)
+#define SIZEOFSTATE			sizeof(tight_State)
 
 
 /* 'magic' as hex literal (padded with 0's) */
-#define TIGHTMAGIC		0x0000005448474954
+#define TIGHTMAGIC			0x0000005448474954
 
 
 /* offset in header for which MD5 digest is valid */
-#define TIGHTbindataoffset		offsetof(TIGHT, bindata)
+#define TIGHTbindataoffset		((off_t)offsetof(TIGHT, bindata))
 
 
 /* maximum bits in huffman code */

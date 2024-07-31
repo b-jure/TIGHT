@@ -68,7 +68,7 @@ TIGHT_FUNC void tightB_initbr(BuffReader *br, tight_State *ts, int fd);
 TIGHT_FUNC int tightB_brfill(BuffReader *br, ulong *n);
 TIGHT_FUNC byte tightB_readnbits(BuffReader *br, int n);
 TIGHT_FUNC int tightB_readpending(BuffReader *br, int *out);
-TIGHT_FUNC off_t tightB_getoffset(BuffReader *br);
+TIGHT_FUNC off_t tightB_offsetreader(BuffReader *br);
 TIGHT_FUNC void tightB_genMD5(tight_State *ts, ulong size, int fd, byte *out);
 
 
@@ -87,9 +87,9 @@ typedef struct BuffWriter {
 TIGHT_FUNC void tightB_initbw(BuffWriter *bw, tight_State *ts, int fd);
 TIGHT_FUNC void tightB_writefile(BuffWriter *bw);
 TIGHT_FUNC void tightB_writebyte(BuffWriter *bw, byte byte);
-TIGHT_FUNC void tightB_writeshort(BuffWriter *bw, ushrt shrt);
 TIGHT_FUNC void tightB_writenbits(BuffWriter *bw, int code, int len);
 TIGHT_FUNC void tightB_writepending(BuffWriter *bw);
+TIGHT_FUNC off_t tightB_seekwriter(BuffWriter *bw, off_t off, int whence);
 
 /* misc func */
 TIGHT_FUNC char *tightB_strdup(tight_State *ts, const char *str);

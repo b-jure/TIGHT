@@ -4,7 +4,6 @@
 #include <ctype.h>
 #endif
 
-#include "talloc.h"
 #include "tbuffer.h"
 #include "tdebug.h"
 #include "tight.h"
@@ -58,8 +57,10 @@ static inline void decodebindata(BuffReader *br, int mode) {
 	t_assert(mode & MODEALL);
 	if (mode & MODEHUFF) {
 		t_trace("---Decoding [tree]----\n");
-		br->ts->hufftree = decodetree(br);
+		br->ts->hufftree = decodetree(br); /* anchor to state */
 		t_trace("\n");
+		tightD_printtree(br->ts->hufftree);
+		t_assert(br->ts->hufftree != NULL);
 		t_assert(br->validbits > 0); /* should have leftover */
 		tightB_readpending(br, NULL); /* rest is just padding */
 	}
@@ -70,17 +71,12 @@ static inline void decodebindata(BuffReader *br, int mode) {
 static void decodechecksum(BuffReader *br, byte *checksum, size_t size) {
 	int c;
 
+	memset(checksum, 0, size);
 	t_trace("---Decoding [checksum]---\n");
 	for (size_t i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		checksum[i] = c;
 		if (i == size - 1) {
-#if defined(TIGHT_TRACE)
-			for (uint i = 0; i < size; i++) {
-				t_tracef("%02X", checksum[i]);
-				if ((i + 1) % 2 == 0) t_trace(" ");
-			}
-			t_trace("\n");
-#endif
+			tightD_printchecksum(checksum, size);
 			return; /* ok */
 		}
 	}
@@ -89,14 +85,19 @@ static void decodechecksum(BuffReader *br, byte *checksum, size_t size) {
 
 
 /* verify decoded 'checksum' */ 
-static void verifychecksum(BuffReader *br, byte *checksum, size_t sumsize,
-						   long bindatasize) 
+static void verifychecksum(BuffReader *br, byte *checksum, off_t bindatastart,
+						   ulong bindatasize) 
 {
-	byte *md5digest = tightA_malloc(br->ts, sumsize * sizeof(byte));
-	t_assert(sumsize >= 16); /* NOTE(jure): currently only MD5 is used */
-	tightB_genMD5(br->ts, bindatasize, br->fd, md5digest);
-	int res = memcmp(md5digest, checksum, sumsize);
-	tightA_free(br->ts, md5digest, sumsize * sizeof(byte));
+	byte out[16];
+	off_t offset;
+
+	if (t_unlikely((offset = lseek(br->fd, bindatastart, SEEK_SET)) < 0))
+		tightD_errnoerr(br->ts, "lseek error in input file");
+	t_assert(br->validbits == 0);
+	tightB_initbr(br, br->ts, br->fd); /* reset reader */
+	tightB_genMD5(br->ts, bindatasize, br->fd, out);
+	t_assert(tightB_offsetreader(br) == bindatastart + bindatasize);
+	int res = memcmp(out, checksum, sizeof(out));
 	if (t_unlikely(res != 0))
 		tightD_headererr(br->ts, ": checksum doesn't match");
 }
@@ -114,17 +115,17 @@ static int decodeheader(BuffReader *br) {
 	t_assert(mode & MODEALL);
 
 	/* start of 'bindata' for 'verifychecksum' */
-	off_t bindatastart = tightB_getoffset(br);
+	off_t bindatastart = tightB_offsetreader(br);
 	decodebindata(br, mode);
-	off_t bindatasize = tightB_getoffset(br);
-	t_assert(bindatasize > bindatastart);
+	off_t bindatasize = tightB_offsetreader(br);
 	bindatasize -= bindatastart;
-	if (t_unlikely(lseek(br->fd, bindatastart, SEEK_SET) < 0))
-		tightD_errnoerr(br->ts, "seek error in input file");
 
 	/* decode 'checksum' and verify it */
 	decodechecksum(br, checksum, sizeof(checksum));
-	verifychecksum(br, checksum, sizeof(checksum), bindatasize);
+	off_t checksumend = tightB_offsetreader(br);
+	verifychecksum(br, checksum, bindatastart, bindatasize);
+	if (t_unlikely(lseek(br->fd, checksumend, SEEK_SET) < 0))
+		tightD_errnoerr(br->ts, "lseek error in input file");
 	return mode;
 }
 
@@ -135,7 +136,8 @@ static int getsymbol(TreeData **t, int *code, int *nbits, int limit)
 	TreeData *curr = *t;
 
 	if (curr->left == NULL) { /* leaf ? */
-		t_assert(curr->right = NULL);
+		t_assert(curr->right == NULL);
+		t_tracef((isgraph(curr->c) ? "%c" : "%hu"), curr->c);
 		return curr->c;
 	} else if (*nbits <= limit) { /* hit limit ? */
 		*t = curr; /* set checkpoint */
@@ -158,47 +160,57 @@ static int getsymbol(TreeData **t, int *code, int *nbits, int limit)
 /* decompress/decode file contents */
 static inline void decodehuffman(BuffWriter *bw, BuffReader *br) {
 	tight_State *ts = bw->ts;
+	TreeData *at = ts->hufftree; /* checkpoint */
 	int ahead, sym, code, left;
 
 	t_assert(br->validbits == 0); /* data must be aligned */
 	t_assert(ts->hufftree != NULL); /* must have decoded huffman tree */
-
 	t_trace("---Decoding [huffman]---\n");
+
 	int c1 = tightB_brgetc(br);
 	t_assert(c1 != TIGHTEOF); /* can't be empty */
+
 	int c2 = tightB_brgetc(br);
-	if (t_unlikely(c2 == TIGHTEOF)) { /* very small file */
-		left = geofbits(c1);
-		code = (c1 >> (8 - left));
+	if (t_unlikely(c2 == TIGHTEOF)) { /* 'eof' in 'c1' ? */
+		left = geofbits(c1); /* eof without bias */
+		t_assert(left <= 5);
+		code = (c1 >> 3) >> (5 - left);
 		goto eof;
 	}
-	TreeData *at = ts->hufftree; /* checkpoint */
+
 	code = (c2 << 8) | c1;
-	left = 16;
+	left = MAXCODE;
+	t_trace("[");
 	while ((ahead = tightB_brgetc(br)) != TIGHTEOF) {
+		t_assert(left == MAXCODE);
 		for (;;) {
 			sym = getsymbol(&at, &code, &left, 8);
 			if (sym == -1) break; /* check next 8 bits */
+			t_trace(",");
 			at = ts->hufftree;
 			tightB_writebyte(bw, sym);
 		}
-		t_assert(left == 8 && at != ts->hufftree);
-		code |= (ahead << left);
+		t_assert(left == 8);
+		code |= ahead << left;
 		left += 8;
 	}
 	t_assert(left == MAXCODE);
-	left = geofbits(code) + EOFBIAS; /* have bias */
+	left = geofbits(code) + EOFBIAS; /* eof with bias */
+	t_assert(left <= MAXCODE - EOFBITS);
 	code >>= MAXCODE - left;
+
 eof:
 	while (left > 0) {
-		sym = getsymbol(&ts->hufftree, &code, &left, 0);
+		t_trace(",");
+		sym = getsymbol(&at, &code, &left, 0);
 		if (t_unlikely(sym == -1))
 			tightD_error(ts, "file is improperly encoded");
 		t_assert(sym >= 0);
 		tightB_writebyte(bw, sym);
 	}
+	t_trace("]\n");
 	t_assert(left == 0);
-	t_trace("Decoding huffman done!");
+	tightB_writefile(bw);
 }
 
 
@@ -217,4 +229,5 @@ TIGHT_API void tight_decode(tight_State *ts) {
 	if (mode & MODEHUFF)
 		decodehuffman(&bw, &br);
 	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
+	t_trace("\n***Decoding complete!***\n\n");
 }

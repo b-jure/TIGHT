@@ -222,16 +222,20 @@ int main(int argc, const char **argv) {
 		exit(EXIT_FAILURE);
 	}
 	memset(&ctx, 0, sizeof(ctx));
+
 	int res = parseargs(&ctx, --argc, ++argv);
 	if (res == argserr)
 		status = EXIT_FAILURE;
 	if (status == EXIT_FAILURE || res == argshelp)
 		goto cleanup;
+
 	tight_seterror(ts, tprint);
 	tight_setpanic(ts, tpanic);
+
 	int rfd = openfile(ctx.infile, O_RDONLY, 0);
-	int wfd = openfile(ctx.outfile, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+	int wfd = openfile(ctx.outfile, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	tight_setfiles(ts, rfd, wfd);
+
 	if (ctx.decode) { /* decode */
 		tight_decode(ts);
 	} else { /* encode */
@@ -245,7 +249,9 @@ int main(int argc, const char **argv) {
 			tight_encode(ts, mode, NULL);
 		}
 	}
-	close(rfd); close(wfd);
+
+	close(rfd); 
+	close(wfd);
 cleanup:
 	tight_free(ts);
 	exit(status);
