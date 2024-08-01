@@ -11,8 +11,8 @@
 #include "tstate.h"
 
 
-/* extract 'eof' bits from 'mask' */
-#define geofbits(mask)		((mask) & 0x07)
+/* extract 'eof' bits from 'bits' */
+#define geofbits(bits)		((bits) & 0x07)
 
 
 
@@ -131,16 +131,14 @@ static int decodeheader(BuffReader *br) {
 
 
 /* get symbol from huffman 'code' */
-static int getsymbol(TreeData **t, int *code, int *nbits, int limit) 
+static int getsymbol(TreeData **cp, TreeData *curr, int *code, int *nbits, int limit) 
 {
-	TreeData *curr = *t;
-
 	if (curr->left == NULL) { /* leaf ? */
 		t_assert(curr->right == NULL);
 		t_tracef((isgraph(curr->c) ? "%c" : "%hu"), curr->c);
 		return curr->c;
 	} else if (*nbits <= limit) { /* hit limit ? */
-		*t = curr; /* set checkpoint */
+		*cp = curr; /* set checkpoint */
 		return -1; /* return indicator */
 	} else { /* parent */
 		byte direction = *code & 0x01;
@@ -149,9 +147,9 @@ static int getsymbol(TreeData **t, int *code, int *nbits, int limit)
 		*nbits -= 1;
 		int sym;
 		if (direction) /* 1 (right) */
-			sym = getsymbol(&curr->right, code, nbits, limit);
+			sym = getsymbol(cp, curr->right, code, nbits, limit);
 		else /* 0 (left) */
-			sym = getsymbol(&curr->left, code, nbits, limit);
+			sym = getsymbol(cp, curr->left, code, nbits, limit);
 		return sym;
 	}
 }
@@ -168,13 +166,16 @@ static inline void decodehuffman(BuffWriter *bw, BuffReader *br) {
 	t_trace("---Decoding [huffman]---\n");
 
 	int c1 = tightB_brgetc(br);
+	for (int i = 0; i <= br->n; i++)
+		t_tracelong("(", tightD_printbits(br->buf[i], 8), ")");
+	t_trace("\n");
 	t_assert(c1 != TIGHTEOF); /* can't be empty */
 
 	int c2 = tightB_brgetc(br);
 	if (t_unlikely(c2 == TIGHTEOF)) { /* 'eof' in 'c1' ? */
 		left = geofbits(c1); /* eof without bias */
-		t_assert(left <= 5);
-		code = (c1 >> 3) >> (5 - left);
+		t_assert(left <= 8 - EOFBITS);
+		code = c1 >> (8 - left);
 		goto eof;
 	}
 
@@ -184,7 +185,7 @@ static inline void decodehuffman(BuffWriter *bw, BuffReader *br) {
 	while ((ahead = tightB_brgetc(br)) != TIGHTEOF) {
 		t_assert(left == MAXCODE);
 		for (;;) {
-			sym = getsymbol(&at, &code, &left, 8);
+			sym = getsymbol(&at, at, &code, &left, MAXCODE >> 1);
 			if (sym == -1) break; /* check next 8 bits */
 			t_trace(",");
 			at = ts->hufftree;
@@ -195,16 +196,18 @@ static inline void decodehuffman(BuffWriter *bw, BuffReader *br) {
 		left += 8;
 	}
 	t_assert(left == MAXCODE);
-	left = geofbits(code) + EOFBIAS; /* eof with bias */
+	/* eof with bias and full prev byte */
+	left = geofbits(code >> 8) + EOFBIAS + 2;
 	t_assert(left <= MAXCODE - EOFBITS);
-	code >>= MAXCODE - left;
+	code = ((code >> (MAXCODE - left)) & 0xff00) | (code & 0xff);
 
 eof:
 	while (left > 0) {
-		t_trace(",");
-		sym = getsymbol(&at, &code, &left, 0);
+		t_trace((sym != -1 ? "," : ""));
+		sym = getsymbol(&at, at, &code, &left, 0);
 		if (t_unlikely(sym == -1))
 			tightD_error(ts, "file is improperly encoded");
+		at = ts->hufftree;
 		t_assert(sym >= 0);
 		tightB_writebyte(bw, sym);
 	}
