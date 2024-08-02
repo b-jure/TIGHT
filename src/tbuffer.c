@@ -9,7 +9,7 @@
 
 
 #define ensurebuf(ts,b,n) \
-	tightA_ensurevec(ts, (b)->str, (b)->size, UINT_MAX, (b)->len, n)
+	tightA_ensurevec(ts, (b)->str, (b)->size, UINT_MAX, (b)->len, n, "chars")
 
 #define addlen2buff(b,l)		((b)->len += (l))
 
@@ -30,10 +30,12 @@
 
 /* initialize buffer */
 void tightB_init(tight_State *ts, Buffer *buf) {
+	t_assert(ts->temp != NULL);
 	buf->size = 0;
 	buf->len = 0;
 	buf->str = NULL;
 	ensurebuf(ts, buf, MINBUFSIZE);
+	updatetm(ts->temp, buf->str, buf->size);
 }
 
 
@@ -41,9 +43,11 @@ void tightB_init(tight_State *ts, Buffer *buf) {
 void tightB_addint(tight_State *ts, Buffer *buf, int i) {
 	char temp[MAXNUMDIGITS];
 	int cnt = snprintf(temp, sizeof(temp), "%d", i);
+	t_assert(ts->temp != NULL);
 	ensurebuf(ts, buf, cnt);
 	memcpy(&buf->str[buf->len], temp, cnt);
 	addlen2buff(buf, cnt);
+	updatetm(ts->temp, buf->str, buf->size);
 }
 
 
@@ -51,34 +55,42 @@ void tightB_addint(tight_State *ts, Buffer *buf, int i) {
 void tightB_adduint(tight_State *ts, Buffer *buf, uint u) {
 	char temp[MAXNUMDIGITS];
 	int cnt = snprintf(temp, sizeof(temp), "%u", u);
+	t_assert(ts->temp != NULL);
 	ensurebuf(ts, buf, cnt);
 	memcpy(&buf->str[buf->len], temp, cnt);
 	addlen2buff(buf, cnt);
+	updatetm(ts->temp, buf->str, buf->size);
 }
 
 
 /* conversion for strings */
 void tightB_addstring(tight_State *ts, Buffer *buf, const char *str, size_t len) {
+	t_assert(ts->temp != NULL);
 	ensurebuf(ts, buf, len);
 	memcpy(&buf->str[buf->len], str, len);
 	addlen2buff(buf, len);
+	updatetm(ts->temp, buf->str, buf->size);
 }
 
 
 /* push char */
 void tightB_push(tight_State *ts, Buffer *buf, unsigned char c) {
+	t_assert(ts->temp != NULL);
 	ensurebuf(ts, buf, 1);
 	buf->str[buf->len++] = c;
+	updatetm(ts->temp, buf->str, buf->size);
 }
 
 
 /* free buffer memory */
 void tightB_free(tight_State *ts, Buffer *buf) {
+	t_assert(ts->temp != NULL);
 	if (buf->size > 0) {
 		t_assert(buf->str != NULL);
 		tightA_freevec(ts, buf->str, buf->size);
 	}
 	buf->str = NULL; buf->size = buf->len = 0;
+	tightS_poptemp(ts);
 }
 
 
@@ -119,7 +131,7 @@ int tightB_brfill(BuffReader *br, ulong *n) {
 	br->current = &br->buf[br->n - (br->n > 0)];
 	ssize_t readn = read(br->fd, br->current, nbytes);
 	if (t_unlikely(readn < 0))
-		tightD_errnoerr(br->ts, "read error while reading input file");
+		tightD_errnoerror(br->ts, "read");
 	br->n += readn;
 	t_assert(br->n <= (ssize_t)nbytes);
 	t_assert(br->n <= (ssize_t)sizeof(br->buf));
@@ -146,7 +158,7 @@ byte tightB_readnbits(BuffReader *br, int n) {
 		t_assert(br->validbits + n <= TMPBsize);
 		res = tightB_brgetc(br);
 		if (t_unlikely(res == TIGHTEOF))
-			tightD_headererr(br->ts, ": binary data");
+			tightD_headererror(br->ts, "binary data");
 		br->tmpbuf |= (ushrt)res << br->validbits;
 		br->validbits += 8;
 	}
@@ -173,7 +185,7 @@ int tightB_readpending(BuffReader *br, int *out) {
 off_t tightB_offsetreader(BuffReader *br) {
 	off_t n = lseek(br->fd, 0, SEEK_CUR);
 	if (t_unlikely(n < 0))
-		tightD_errnoerr(br->ts, "lseek error in input file");
+		tightD_errnoerror(br->ts, "lseek (input file)");
 	return n - br->n;
 }
 
@@ -217,7 +229,7 @@ void tightB_initbw(BuffWriter *bw, tight_State *ts, int fd) {
 /* flush 'buf' into the current 'wfd' */
 void tightB_writefile(BuffWriter *bw) {
 	if (t_unlikely(bw->len > 0 && write(bw->fd, bw->buf, bw->len) < 0))
-		tightD_errnoerr(bw->ts, "write error while writting output file");
+		tightD_errnoerror(bw->ts, "write");
 	bw->len = 0;
 }
 
@@ -271,7 +283,7 @@ void tightB_writepending(BuffWriter *bw) {
 off_t tightB_seekwriter(BuffWriter *bw, off_t off, int whence) {
 	off_t offset = lseek(bw->fd, off, whence);
 	if (t_unlikely(offset < 0))
-		tightD_errnoerr(bw->ts, "lseek error in output file");
+		tightD_errnoerror(bw->ts, "lseek (output file)");
 	return offset;
 }
 

@@ -4,13 +4,15 @@
 
 #include "tdebug.h"
 #include "tbuffer.h"
+#include "talloc.h"
+#include "tstate.h"
 
 
-static void errorfmt(tight_State *ts, const char *fmt, va_list ap) {
+static void seterrorfmt(tight_State *ts, const char *fmt, va_list ap) {
 	Buffer buf;
 	const char *end;
+	TempMem *tm = tightA_newtempmem(ts);
 
-	t_assert(ts->fmsg);
 	tightB_init(ts, &buf);
 	while ((end = strchr(fmt, '%')) != NULL) {
 		tightB_addstring(ts, &buf, fmt, end - fmt);
@@ -39,53 +41,86 @@ static void errorfmt(tight_State *ts, const char *fmt, va_list ap) {
 			tightB_push(ts, &buf, '%');
 			break;
 		}
-		default:
-			tightB_free(ts, &buf);
-			tightD_errorf(ts, "unkown format specifier %%%c", end[1]);
+		default: /* UNREACHED */
+			t_assert(0);
+			break;
 		}
 		fmt = end + 2; /* move to end + skip format specifier */
 	}
 	tightB_addstring(ts, &buf, fmt, strlen(fmt) + 1); /* include null term */
-	ts->fmsg(buf.str);
-	tightB_free(ts, &buf);
+	tightA_realloc(ts, buf.str, buf.size, strlen(buf.str) + 1); /* shrink block */
+	if (ts->error) /* have previous error ? */
+		tightA_free(ts, ts->error, strlen(ts->error) + 1);
+	ts->error = buf.str;
 }
 
 
 /* generic formatted error */
-t_noret tightD_error_(tight_State *ts, const char *fmt, ...) {
+static void errormsg(tight_State *ts, const char *fmt, ...) {
 	va_list ap;
 
-	if (ts->fmsg) {
-		va_start(ap, fmt);
-		errorfmt(ts, fmt, ap);
-		va_end(ap);
-	}
-	if (ts->fpanic)
-		ts->fpanic(ts);
-	abort();
+	va_start(ts->errjmp->ap, fmt);
+	ts->errjmp->haveap = 1;
+	seterrorfmt(ts, fmt, ap); /* 'va_end' in here */
+	va_end(ts->errjmp->ap);
+	ts->errjmp->haveap = 0;
 }
 
 
-/* oom error */
-t_noret tightD_memerror(tight_State *ts) {
-	tightD_error_(ts, MSGFMT("out of memory"));
+/* compression error */
+t_noret tightD_compresserror(tight_State *ts, const char *desc) {
+	t_assert(desc != NULL);
+	errormsg(ts, "compression error (%s)", desc);
+	tightS_throw(ts, TIGHT_ERRCOMP);
 }
 
 
-/* print warning */
-void tightD_warn_(tight_State *ts, const char *wfmt, ...) {
-	t_assert(ts->fmsg != NULL);
-	va_list ap;
-	va_start(ap, wfmt);
-	errorfmt(ts, wfmt, ap);
-	va_end(ap);
+/* decompression error */
+t_noret tightD_decompresserror(tight_State *ts, const char *desc) {
+	t_assert(desc != NULL);
+	errormsg(ts, "decompression error (%s)", desc);
+	tightS_throw(ts, TIGHT_ERRDECOMP);
 }
 
 
-/* TIGHT header decode error */
+/* malformed TIGHT header error */
 t_noret tightD_headererr(tight_State *ts, const char *extra) {
 	extra = (extra ? extra : "");
-	tightD_error_(ts, MSGFMT("malformed header (input file)%s"), extra);
+	errormsg(ts, "malformed header%s", extra);
+	tightS_throw(ts, TIGHT_ERRHEAD);
+}
+
+
+/* libc error */
+t_noret tigthD_errnoerror(tight_State *ts, const char *fn, int errnum) {
+	t_assert(fn != NULL);
+	t_assert(errnum != 0);
+	errormsg(ts, "%s: %s", fn, strerror(errnum));
+	tightS_throw(ts, TIGHT_ERRNO);
+}
+
+
+/* size limit error */
+t_noret tightD_limiterror(tight_State *ts, const char *what, uint limit) {
+	t_assert(what != NULL);
+	errormsg(ts, "too many %s, limit is %u", what, limit);
+	tightS_throw(ts, TIGHT_ERRLIMIT);
+}
+
+
+/* mismatched 'major' version error */
+t_noret tightD_versionerror(tight_State *ts, byte major) {
+	t_assert(major != NULL);
+	errormsg(ts, "mismatched major version number, expect " TIGHT_VERSION_MAJOR
+				 " got %c", major);
+	tightS_throw(ts, TIGHT_ERRVER);
+}
+
+
+TIGHT_API const char *tight_geterror(tight_State *ts) {
+	if (t_unlikely(ts->status == TIGHT_ERRMEM))
+		return TIGHT_MEMERROR;
+	return ts->error;
 }
 
 

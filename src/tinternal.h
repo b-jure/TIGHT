@@ -75,6 +75,21 @@
 #endif
 
 
+#if defined(__linux__)
+#define TIGHT_OS	TIGHT_GNULINUX
+#elif defined(__ANDROID__)
+#define TIGHT_OS	TIGHT_ANDROID
+#elif defined(__WIN32)
+#define TIGHT_OS	TIGHT_WINDOWS
+#elif defined(__APPLE__ && __MACH__)
+#define TIGHT_OS	TIGHT_MAC	
+#elif defined(__FreeBSD__)
+#define TIGHT_OS	TIGHT_FREEBSD
+#else
+#error Unsupported operating system.
+#endif
+
+
 /* typedefs */
 typedef unsigned char		byte;
 typedef unsigned short		ushrt;

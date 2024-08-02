@@ -66,8 +66,8 @@ static const size_t internal_freqs[TIGHTBYTES] = {
 
 
 /* write 'magic' */
-static inline void encodemagic(BuffWriter *bw) {
-	t_trace("---Encoding [magic]---\n");
+static inline void writemagic(BuffWriter *bw) {
+	t_trace("---Writing [magic]---\n");
 	t_assert(bw->len == 0 && bw->validbits == 0);
 	tightB_writebyte(bw, MAGIC[0]);
 	tightB_writebyte(bw, MAGIC[1]);
@@ -81,14 +81,56 @@ static inline void encodemagic(BuffWriter *bw) {
 }
 
 
-/* auxiliary to 'encodebindata', encodes Huffman tree structure */
-static void encodetree(BuffWriter *bw, TreeData *ht) {
+/* write version string */
+static inline void writeversion(BuffWriter *bw) {
+	t_trace("---Writing [version]---\n");
+	tightB_writebyte(bw, TIGHT_VERSION_MAJOR[0]);
+	tightB_writebyte(bw, TIGHT_VERSION_MINOR[0]);
+	tightB_writebyte(bw, TIGHT_VERSION_RELEASE[0]);
+	t_tracef("%d\n", TIGHT_VERSION_NUM);
+}
+
+
+/* write OS */
+static inline void writeOS(BuffWriter *bw) {
+	t_trace("---Writing [OS]---\n");
+#if TIGHT_OS == TIGHT_GNULINUX
+	t_trace("TIGHT_GNULINUX\n");
+#elif TIGHT_OS == TIGTH_ANDROID
+#error OS not yet supported.
+#elif TIGHT_OS == TIGHT_WINDOWS
+#error OS not yet supported.
+#elif TIGHT_OS == TIGHT_MAC
+#error OS not yet supported.
+#elif TIGHT_OS == TIGHT_FREEBSD
+#error OS not yet supported.
+#else
+#error unsupported operating system.
+#endif
+	tightB_writebyte(bw, TIGHT_OS);
+}
+
+
+#define ALLMODES	(TIGHT_HUFFMAN | TIGHT_RLE)
+
+/* write compression mode */
+static inline void writemode(BuffWriter *bw, int mode) {
+	t_trace("---Writing [mode]---\n");
+	t_assert(TIGHT_NONE <= mode && mode <= ALLMODES);
+	t_assert(mode <= UCHAR_MAX);
+	tightB_writebyte(bw, (byte)mode);
+	t_tracef("0x%X\n", mode);
+}
+
+
+/* auxiliary to 'compressbindata', compress Huffman tree structure */
+static void writetree(BuffWriter *bw, TreeData *ht) {
 	if (ht->left) { /* parent tree ? */
 		tightB_writenbits(bw, 0, 1); /* mark as parent */
 		t_trace("[");
-		encodetree(bw, ht->left); /* traverse left */
+		writetree(bw, ht->left); /* traverse left */
 		t_trace(", ");
-		encodetree(bw, ht->right); /* traverse right */
+		writetree(bw, ht->right); /* traverse right */
 		t_trace("]");
 	} else { /* leaf */
 		t_assert(ht->right == NULL && 0 <= ht->c && ht->c < 256);
@@ -99,31 +141,30 @@ static void encodetree(BuffWriter *bw, TreeData *ht) {
 }
 
 
-static inline void encodebindata(BuffWriter *bw, int mode) {
+static inline void writebindata(BuffWriter *bw, int mode) {
 	t_assert(bw->ts->hufftree);
-	if (mode & MODEHUFF) {
-		t_trace("---Encoding [tree]---\n");
-		encodetree(bw, bw->ts->hufftree);
+	if (mode & TIGHT_HUFFMAN) {
+		t_trace("---Writing [tree]---\n");
+		writetree(bw, bw->ts->hufftree);
 		t_trace("\n");
 	}
-	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
+	if (mode & TIGHT_RLE) {/* TODO(jure): implement LZW */}
 	tightB_writepending(bw);
 	tightB_writefile(bw);
 }
 
 
 /* write MD5 digest */
-static inline void encodechecksum(BuffWriter *bw, int mode) {
+static inline void writechecksum(BuffWriter *bw) {
 	byte checksum[16];
 
-	(void)mode; /* currently unused */
 	t_assert(bw->len == 0); /* buffer must be flushed */
 	off_t bindatasz = tightB_seekwriter(bw, 0, SEEK_CUR) - TIGHTbindataoffset;
 	t_assert(bindatasz > 0);
 	tightB_seekwriter(bw, TIGHTbindataoffset, SEEK_SET);
 	tightB_genMD5(bw->ts, bindatasz, bw->fd, checksum);
 	t_assert(lseek(bw->fd, 0, SEEK_CUR) == TIGHTbindataoffset + bindatasz);
-	t_trace("---Encoding [checksum MD5]---\n");
+	t_trace("---Writing [checksum(MD5)]---\n");
 	tightB_writebyte(bw, checksum[0]);
 	tightB_writebyte(bw, checksum[1]);
 	tightB_writebyte(bw, checksum[2]);
@@ -144,29 +185,15 @@ static inline void encodechecksum(BuffWriter *bw, int mode) {
 }
 
 
-/* compress/encode header */
-static inline void encodeheader(BuffWriter *bw, int mode) {
-	encodemagic(bw);
-	encodebindata(bw, mode);
-	encodechecksum(bw, mode);
+/* compress header */
+static inline void writeheader(BuffWriter *bw, int mode) {
+	writemagic(bw);
+	writeversion(bw);
+	writeOS(bw);
+	writemode(bw, mode);
+	writebindata(bw, mode);
+	writechecksum(bw);
 	tightB_writefile(bw); /* write all */
-}
-
-
-/* compress file contents */
-static void encodehuffman(BuffReader *br, BuffWriter *bw) {
-	tight_State *ts = br->ts;
-	int c;
-
-	t_assert(bw->validbits == 0);
-	t_trace("---Encoding [huffman]---\n");
-	while ((c = tightB_brgetc(br)) != TIGHTEOF) {
-		t_assert(c >= 0 && c <= UCHAR_MAX);
-		HuffCode *hc = &ts->codes[c];
-		t_trace("("); tightD_printbits(hc->code, hc->nbits); t_trace(")");
-		tightB_writenbits(bw, hc->code, hc->nbits);
-	}
-	t_trace("\n");
 }
 
 
@@ -177,8 +204,7 @@ static void encodehuffman(BuffReader *br, BuffWriter *bw) {
  * For example, in case last 'EOFBITS' are '001' (1),
  * then 7 bits will be read starting from the previous byte.
  */
-static void encodeeof(BuffWriter *bw) {
-	t_trace("---Encoding [huffman-eof]---\n");
+static void compresseof(BuffWriter *bw) {
 	if (bw->validbits >= 8) {
 		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 		tightB_writebyte(bw, bw->tmpbuf);
@@ -198,46 +224,75 @@ static void encodeeof(BuffWriter *bw) {
 		tightB_writebyte(bw, bw->validbits - EOFBIAS);
 		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 	}
-	t_trace("\n");
 	bw->validbits = 0;
 	tightB_writefile(bw); /* write all */
 }
 
 
-/* huffman encoding */
-static void encodefile(BuffWriter *bw, BuffReader *br, int mode) {
-	encodeheader(bw, mode);
-	t_assert(bw->len == 0 && bw->validbits == 0);
-	if (mode & MODELZW) {/* TODO(jure): implement LZW */}
-	if (mode & MODEHUFF) 
-		encodehuffman(br, bw);
-	encodeeof(bw);
+/* compress file contents */
+static void huffmancompression(BuffReader *br, BuffWriter *bw) {
+	tight_State *ts = br->ts;
+	int c;
+
+	t_assert(bw->validbits == 0);
+	t_trace("---Compressing [huffman]---\n");
+	while ((c = tightB_brgetc(br)) != TIGHTEOF) {
+		t_assert(c >= 0 && c <= UCHAR_MAX);
+		HuffCode *hc = &ts->codes[c];
+		t_trace("("); tightD_printbits(hc->code, hc->nbits); t_trace(")");
+		tightB_writenbits(bw, hc->code, hc->nbits);
+	}
+	compresseof(bw);
+	t_trace("\n");
 }
 
 
-/* 
- * Encode input file, write the result into output file; 
- * user of the API should ensure that the input file is a
- * regular file and not a directory, symbolic link or any
- * other special file, otherwise some system calls might
- * have undefined behaviour.
- */
-TIGHT_API void tight_encode(tight_State *ts, int mode, const size_t *freqs) {
+/* huffman encoding */
+static void compressfile(BuffWriter *bw, BuffReader *br, int mode) {
+	t_assert(!(mode & TIGHT_NONE));
+	writeheader(bw, mode);
+	t_assert(bw->len == 0 && bw->validbits == 0);
+	if (mode & TIGHT_RLE) {/* TODO(jure): implement LZW */}
+	if (mode & TIGHT_HUFFMAN)
+		huffmancompression(br, bw);
+}
+
+
+/* compression data */
+typedef struct CompressData {
+	const size_t *freqs;
+	int mode;
+} CompressData;
+
+
+/* run protected compression */
+static void pcompress(tight_State *ts, void *ud) {
 	BuffReader br; BuffWriter bw;
+	CompressData *cd = (CompressData*)ud;
 
-	/* must have valid files */
-	t_assert(ts->rfd >= 0 && ts->wfd >= 0 && ts->rfd != ts->wfd);
-
-	if (t_unlikely(!(mode & MODEALL)))
-		tightD_error(ts, "invalid mode bits for encoding");
+	if (t_unlikely(!(cd->mode < 0)))
+		tightD_compresserror(ts, "invalid mode bits");
+	if (cd->mode & TIGHT_NONE)
+		return;
 
 	/* init reader and writer */
 	tightB_initbr(&br, ts, ts->rfd);
 	tightB_initbw(&bw, ts, ts->wfd);
 
 	/* TODO(jure): implement LZW */
-	if (mode & MODEHUFF) /* using huffman coding ? */
-		tightS_gencodes(ts, freqs ? freqs : internal_freqs);
-	encodefile(&bw, &br, mode);
-	t_trace("\n***Encoding complete!***\n\n");
+	if (cd->mode & TIGHT_HUFFMAN) /* using huffman coding ? */
+		tightS_gencodes(ts, cd->freqs ? cd->freqs : internal_freqs);
+
+	t_trace("\n***Compression start!***\n\n");
+	compressfile(&bw, &br, cd->mode);
+	t_trace("\n***Compressing complete!***\n\n");
+}
+
+
+TIGHT_API int tight_compress(tight_State *ts, int mode, const size_t *freqs) {
+	CompressData cd;
+	cd.freqs = freqs;
+	cd.mode = mode;
+	t_assert(ts->rfd >= 0 && ts->wfd >= 0 && ts->rfd != ts->wfd);
+	return tightS_protectedcall(ts, &cd, pcompress);
 }

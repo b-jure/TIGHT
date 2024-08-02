@@ -1,9 +1,15 @@
+#include <stdarg.h>
 #include <string.h>
 #include <limits.h>
 #include <unistd.h>
 
 #include "tstate.h"
 #include "tdebug.h"
+#include "talloc.h"
+
+
+/* memory error */
+static const char *memerror = "out of memory";
 
 
 /* header magic */
@@ -27,28 +33,13 @@ TIGHT_API tight_State *tight_new(tight_fRealloc frealloc, void *userdata) {
 		return NULL;
 	ts->frealloc = frealloc;
 	ts->ud = userdata;
-	ts->fmsg = NULL;
-	ts->fpanic = NULL;
+	ts->error = NULL;
+	ts->temp = NULL;
 	ts->hufftree = NULL;
 	memset(ts->codes, 0, sizeof(ts->codes));
+	ts->errjmp = NULL;
 	ts->rfd = ts->wfd = -1;
 	return ts;
-}
-
-
-/* set error writer */
-TIGHT_API tight_fError tight_seterror(tight_State *ts, tight_fError fmsg) {
-	tight_fError old = ts->fmsg;
-	ts->fmsg = fmsg;
-	return old;
-}
-
-
-/* set panic handler */
-TIGHT_API tight_fPanic tight_setpanic(tight_State *ts, tight_fPanic fpanic) {
-	tight_fPanic old = ts->fpanic;
-	ts->fpanic = fpanic;
-	return old;
 }
 
 
@@ -56,6 +47,10 @@ TIGHT_API tight_fPanic tight_setpanic(tight_State *ts, tight_fPanic fpanic) {
 TIGHT_API void tight_free(tight_State *ts) {
 	if (ts->hufftree) 
 		tightT_freeparent(ts, ts->hufftree);
+	if (ts->error)
+		tightA_free(ts, ts->error, strlen(ts->error) + 1);
+	for (TempMem *curr = ts->temp; curr != NULL; curr = curr->next)
+		tightA_freetempmem(ts, curr);
 	ts->frealloc(ts, ts->ud, SIZEOFSTATE, 0);
 }
 
@@ -135,34 +130,42 @@ static inline unsigned reversebits(uint code, int len) {
 }
 
 
+/* TODO(jure): 'Tree' doesn't need frequency, pass 'combfreqs'
+ * as userdata to quicksort implementation */
 /* generate huffman codes table and build huffman tree */
 void tightS_gencodes(tight_State *ts, const size_t *freqs) {
-	TreeHeap ht = { 0 }; /* huffman tree stack */
+	TempMem *tm, *tmstart = ts->temp;
+	TreeHeap ht; /* huffman tree stack */
 	size_t combfreqs[TIGHTCODES]; /* freqs + combined frequencies */
 	int parents[TIGHTCODES]; /* parent frequency indexes in 'combfreqs' */
-	TreeData *t1, *t2; /* left/right subtree */
+	TreeData *t1, *t2, *t; /* left/right subtree */
 	int fi = TIGHTBYTES; /* next available position in 'combfreqs' */
 	int i; /* loop counter */
 
-	/* copy over counts */
+	memset(&ht, 0, sizeof(ht));
 	memcpy(combfreqs, freqs, TIGHTBYTES * sizeof(size_t));
 	memset(&combfreqs[TIGHTBYTES], 0, TIGHTBYTES * sizeof(size_t));
 
-	/* make leafs */
-	for (i = 0; i < TIGHTBYTES; i++)
-		if (combfreqs[i] != 0)
-			ht.trees[ht.len++] = tightT_newleaf(ts, combfreqs[i], i);
-
-	/* sort leaf trees */
+	/* make leaf trees */
+	for (i = 0; i < TIGHTBYTES; i++) {
+		if (combfreqs[i] != 0) {
+			tm = tightA_newtempmem(ts);
+			t = tightT_newleaf(ts, combfreqs[i], i);
+			updatetm(tm, t, sizeof(*t));
+			ht.trees[ht.len++] = t;
+		}
+	}
 	tightqsort(ht.trees, 0, ht.len - 1);
-
-	t_trace("---Heap---\n");
 	printTreeHeap(&ht);
+
 	/* build huffman tree and frequency array */
 	while (ht.len > 1) {
 		t1 = ht.trees[--ht.len]; /* left subtree */
 		t2 = ht.trees[--ht.len]; /* right subtree */
-		sortedinsert(&ht, tightT_newparent(ts, t1, t2, fi)); /* t1 <- p -> t2 */
+		tm = tightA_newtempmem(ts);
+		t = tightT_newparent(ts, t1, t2, fi);
+		updatetm(tm, t, sizeof(*t));
+		sortedinsert(&ht, t); /* t1 <- t -> t2 */
 		printTreeHeap(&ht);
 		combfreqs[fi] = t1->c + t2->freq;
 		parents[t1->c] = -fi; /* left */
@@ -173,18 +176,18 @@ void tightS_gencodes(tight_State *ts, const size_t *freqs) {
 	t1 = ht.trees[--ht.len]; /* pop huffman tree */
 	parents[t1->c] = t1->c;
 	ts->hufftree = t1; /* anchor to state */
-
 	tightD_printtree(ts->hufftree);
+	while (ts->temp != tmstart) /* unlink and free temporary memory */
+		tightS_poptemp(ts);
+
 	/* build huffman codes */
 	int nbits, code, y;
 	memset(ts->codes, 0, sizeof(ts->codes));
-	t_trace("---Codes---\n");
 	for (i = 0; i < TIGHTBYTES; i++) {
 		if (combfreqs[i] == 0) /* skip 0 frequency bytes */
 			continue;
 		y = i; /* preserve 'i' */
 		nbits = code = 0;
-		/* build the huffman code */
 		while (t_abs(parents[y]) != y) { /* while not tree root */
 			code |= (parents[y] >= 0) << nbits; /* 1 if right, 0 if left */
 			y = t_abs(parents[y]); /* follow the node to root */
@@ -204,18 +207,43 @@ void tightS_gencodes(tight_State *ts, const size_t *freqs) {
 }
 
 
-/* 
- * Set input and output file descriptors and generate
- * huffman codes table based on provided frequencies.
- * 'freqs' must be of size 256 (or TIGHTBYTES).
- * In case 'freqs' is NULL then internal frequency table
- * is used 'internal_freqs'.
- */
 TIGHT_API void tight_setfiles(tight_State *ts, int rfd, int wfd) {
-	t_assert(rfd >= 0 && wfd >= 0 && rfd != wfd);
+	t_assert(rfd < 0 || wfd < 0 || rfd == wfd);
 	if (ts->hufftree)
 		tightT_freeparent(ts, ts->hufftree);
 	memset(ts->codes, 0, sizeof(ts->codes));
 	ts->rfd = rfd;
 	ts->wfd = wfd;
+}
+
+
+/* remove/unlink first TempMem */
+void tightS_poptemp(tight_State *ts) {
+	t_assert(ts->temp != NULL);
+	TempMem *tm = ts->temp;
+	ts->temp = ts->temp->next;
+	tightA_free(ts, tm, sizeof(*tm));
+}
+
+
+/* run protected function 'fn' */
+int tightS_protectedcall(tight_State *ts, void *ud, fProtected fn) {
+	Tightjmpbuf errjmp;
+	t_assert(ts->errjmp == NULL);
+	errjmp.haveap = 0;
+	ts->status = TIGHT_OK;
+	if (setjmp(errjmp.buf) == 0)
+		fn(ts, ud);
+	if (errjmp.haveap)
+		va_end(errjmp.ap);
+	ts->errjmp = NULL;
+	return ts->status;
+}
+
+
+/* set status code and jump to 'errjmp' */
+t_noret tightS_throw(tight_State *ts, int errcode) {
+	t_assert(ts->errjmp != NULL);
+	ts->status = errcode;
+	longjmp(ts->errjmp->buf, 1);
 }

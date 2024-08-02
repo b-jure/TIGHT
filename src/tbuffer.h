@@ -27,9 +27,9 @@
 
 /* string buffer */
 typedef struct Buffer {
-	char *str;
-	uint len;
-	uint size;
+	char *str; /* string */
+	uint len; /* number of elements in 'str' */
+	uint size; /* size of 'str' */
 } Buffer;
 
 

@@ -3,7 +3,7 @@
 
 include config.mk
 
-SRC = src/talloc.c src/tbuffer.c src/tdebug.c src/tdecode.c src/tencode.c \
+SRC = src/talloc.c src/tbuffer.c src/tdebug.c src/tdecompress.c src/tcompress.c\
 	  src/tmd5.c src/tstate.c src/ttree.c
 OBJ = ${SRC:.c=.o}
 

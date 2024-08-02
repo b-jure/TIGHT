@@ -13,26 +13,43 @@
 /* error message format */
 #define ERR_MSG(err)	TIGHT_NAME ": " err ".\n"
 
-
-/* command line context */
-typedef struct CLI_context {
-	const char *infile; /* input file */
-	const char *outfile; /* output file */
-	unsigned char huffman; /* use huffman coding */
-	unsigned char lzw; /* use lzw */
-	unsigned char decode; /* decode */
-} CLIctx;
-
-
 /* tight error */
 #define terror(err)			tprint(ERR_MSG(err))
 #define terrorf(fmt, ...)	tprintf(ERR_MSG(fmt), __VA_ARGS__)
 
 
+/* cleanup and exit */
+#define tdie(ts) \
+	{ tight_free(ts); if (t_outfile) free(t_outfile); exit(EXIT_FAILURE); }
+
+
+typedef unsigned char uchar;
+
+
+/* command line context */
+typedef struct CLI_context {
+	tight_State *ts; /* state for errors */
+	const char *infile; /* input file */
+	const char *outfile; /* output file */
+	uchar huffman; /* use huffman coding */
+	uchar lzw; /* use lzw */
+	uchar decode; /* decode */
+} CLIctx;
+
+
+/* output filename */
+static char *t_outfile = NULL;
+
+
+/* character frequencies (for huffman) */
+static size_t t_frequencies[256];
+
+
+
 /* memory allocator */
 static void *trealloc(void *block, void *ud, size_t os, size_t ns) {
-	(void)ud;
-	(void)os;
+	(void)ud; /* unused */
+	(void)os; /* unused */
 	if (ns == 0) {
 		free(block);
 		return NULL;
@@ -58,36 +75,60 @@ static void tprintf(const char *fmt, ...) {
 }
 
 
-/* panic handler */
-static void tpanic(tight_State *ts) {
-	tight_free(ts);
-	exit(EXIT_FAILURE);
-}
-
-
 /* print usage */
 static void usage(void) {
 	tprint(
-		TIGHT_COPYRIGHT "\n"
-		"usage: tight [INFILE] [OUTFILE]\n"
+		"usage: tight [-dhl] [INFILE] [OUTFILE]\n"
+		"\n"
+		"\t-d  decode INFILE into OUTFILE\n"
+		"\t-h  use huffman encoding\n"
+		"\t-l  use lzw encoding\n"
 	);
 }
 
 
-/* 'parseargs' return */
+/* print copyright */
+static void copyright(void) {
+	tprint(TIGHT_COPYRIGHT "\n");
+}
+
+
+/* print version */
+static void version(void) {
+	tprint("version: " TIGHT_RELEASE);
+}
+
+
+/* 
+ * Make output file from 'infile' + '.tit' suffix.
+ * Resulting filename is stored in global 't_outfile'.
+ */
+static void makeoutfile(tight_State *ts, const char *infile) {
+	size_t len = strlen(infile);
+	const char *outfile = trealloc(NULL, NULL, 0, len + sizeof(".tit"));
+	if (outfile == NULL) {
+		terror("out of memory, can't allocate storage for output filename");
+		tight_free(ts);
+		exit(ENOMEM);
+	}
+	memcpy(t_outfile, infile, len);
+	memcpy(&t_outfile[len], ".tit", sizeof(".tit"));
+}
+
+
+/* 'parseargs' returns */
 #define argsok		0
 #define argserr		1
-#define argshelp	2
-
-/* check if we have more opts */
-#define jmpifhaveopt(arg,i,l)		if (arg[++i] != '\0') goto l
+#define argsexit	2
 
 /* parse cli args */
 static int parseargs(CLIctx *ctx, int argc, const char **argv) {
-	size_t i;
-	int infile, outfile, nomoreopts;
+#define jmpifhaveopt(arg,i,l)		if (arg[++i] != '\0') goto l
 
-	infile = outfile = nomoreopts = 0;
+	size_t i;
+	int nomoreopts;
+
+	nomoreopts = 0;
 	while (argc-- > 0) {
 		const char *arg = *argv++;
 		switch (arg[0]) {
@@ -112,9 +153,16 @@ readmore:
 				ctx->decode = 1;
 				jmpifhaveopt(arg, i, readmore);
 				break;
+			case 'C': /* display copyright */
+				copyright();
+				return argsexit;
+				break;
 			case 'h': /* usage/help */
 				usage();
-				return argshelp;
+				return argsexit;
+			case 'v':
+				version();
+				return argsexit;
 			default:
 				terrorf("unknown option '-%c'", arg[i]);
 				return argserr;
@@ -122,24 +170,27 @@ readmore:
 			break;
 		default:
 filearg:
-			if (infile && outfile) {
+			if (ctx->infile && ctx->outfile) {
 				terror("already have input and output file arguments");
 				return argserr;
-			} else if (infile) {
+			} else if (ctx->infile) {
 				ctx->outfile = arg;
-				outfile = 1;
 			} else {
 				ctx->infile = arg;
-				infile = 1;
 			}
 			break;
 		}
 	}
-	if (!infile || !outfile) { /* missing required arguments ? */
-		terrorf("missing %s file", infile ? "output" : "input");
+	if (!ctx->infile) { /* missing input file ? */
+		terror("missing input file");
 		return argserr;
+	} else if (!ctx->outfile) { /* missing output file ? */
+		makeoutfile(ctx->ts, ctx->infile);
+		ctx->outfile = t_outfile;
 	}
 	return argsok;
+
+#undef jmpifhaveopt
 }
 
 
@@ -154,10 +205,11 @@ static int openfile(const char *file, int mode, int perms) {
 
 typedef struct tfile_buffer {
 	tight_State *ts; /* for panic */
-	unsigned char buf[TIGHT_RBUFFSIZE];
-	unsigned char *p; /* current position in 'buf' */
+	uchar buf[TIGHT_RBUFFSIZE];
+	uchar *p; /* current position in 'buf' */
 	ssize_t n; /* how many chars left in 'buf' */
 	int fd; /* file descriptor */
+	int wfd; /* for close in case of errors */
 } tfilebuff;
 
 
@@ -165,19 +217,23 @@ typedef struct tfile_buffer {
 #define tgetchar(fb)		((fb)->n-- > 0 ? *(fb)->p++ : fillfilebuf(fb))
 
 
-static void initfb(tight_State *ts, tfilebuff *fb, int fd) {
+static void initfb(tight_State *ts, tfilebuff *fb, int fd, int wfd) {
 	fb->ts = ts;
 	fb->p = fb->buf;
 	fb->n = 0;
 	fb->fd = fd;
+	fb->wfd = wfd;
 }
 
 
 /* file 'tfilebuff' */
 static int fillfilebuf(tfilebuff *fb) {
 	fb->n = read(fb->fd, fb->buf, sizeof(fb->buf));
-	if (fb->n < 0) 
-		tpanic(fb->ts);
+	if (fb->n < 0) {
+		terrorf("read error (input file): %s", strerror(errno));
+		close(fb->fd); close(fb->wfd);
+		tdie(fb->ts);
+	}
 	if (fb->n == 0)
 		return EOF;
 	fb->p = fb->buf;
@@ -186,72 +242,71 @@ static int fillfilebuf(tfilebuff *fb) {
 }
 
 
-/* get character frequencies from file descriptor 'fd' */
-static void getfrequencies(tight_State *ts, int fd, size_t *freqs) {
+/* get character frequencies from file descriptor 'rfd' */
+static void getfrequencies(tight_State *ts, int rfd, int wfd) {
 	tfilebuff fb; /* file buffer */
 	int c;
 
-	initfb(ts, &fb, fd);
-	memset(freqs, 0, 256 * sizeof(size_t));;
+	initfb(ts, &fb, rfd, wfd);
+	memset(t_frequencies, 0, 256 * sizeof(size_t));;
 	while ((c = tgetchar(&fb)) != EOF)
-		freqs[c]++;
+		t_frequencies[c]++;
+	if (lseek(rfd, 0, SEEK_SET) < 0) {
+		terrorf("seek error input file: %s", strerror(errno));
+		close(rfd); close(wfd);
+		tdie(ts);
+	}
 }
 
 
 /* get encoding/decoding mode */
 static inline int getmode(CLIctx *ctx) {
-	int mode = (ctx->huffman * MODEHUFF) | (ctx->lzw * MODELZW);
-	if (!mode) {
-		/* TODO(jure): implement LZW and set to 'MODEALL' */
-		mode = MODEHUFF;
-	}
+	int mode = (ctx->huffman * TIGHT_HUFFMAN) | (ctx->lzw * TIGHT_RLE);
+	/* TODO(jure): implement LZW */
+	if (!mode) mode = TIGHT_DEFAULT;
 	return mode;
 }
 
 
+
+/* cleanup with status 'c' */
+#define tdefer(c) \
+	{ status = (c); goto cleanup; }
+
+
 /* tight */
 int main(int argc, const char **argv) {
-	size_t freqs[256]; /* frequencies for huffman */
 	CLIctx ctx;
-	int mode, status;
-
-	status = EXIT_SUCCESS;
+	int status = TIGHT_OK;
 	tight_State *ts = tight_new(trealloc, NULL);
 	if (ts == NULL) {
 		terror("couldn't allocate state");
 		exit(EXIT_FAILURE);
 	}
 	memset(&ctx, 0, sizeof(ctx));
-
+	ctx.ts = ts;
 	int res = parseargs(&ctx, --argc, ++argv);
 	if (res == argserr)
 		status = EXIT_FAILURE;
-	if (status == EXIT_FAILURE || res == argshelp)
+	if (status == EXIT_FAILURE || res == argsexit)
 		goto cleanup;
-
-	tight_seterror(ts, tprint);
-	tight_setpanic(ts, tpanic);
-
 	int rfd = openfile(ctx.infile, O_RDONLY, 0);
 	int wfd = openfile(ctx.outfile, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	tight_setfiles(ts, rfd, wfd);
-
-	if (ctx.decode) { /* decode */
-		tight_decode(ts);
-	} else { /* encode */
-		mode = getmode(&ctx);
-		if (mode & MODEHUFF) {
-			getfrequencies(ts, rfd, freqs);
-			if (lseek(rfd, 0, SEEK_SET) < 0)
-				terrorf("seek error input file: %s", strerror(errno));
-			tight_encode(ts, mode, freqs);
-		} else {
-			tight_encode(ts, mode, NULL);
+	if (ctx.decode) { 
+		status = tight_decompress(ts);
+	} else { 
+		size_t *freqs = NULL;
+		int mode = getmode(&ctx);
+		if (mode & TIGHT_HUFFMAN) {
+			getfrequencies(ts, rfd, wfd);
+			freqs = t_frequencies;
 		}
+		status = tight_compress(ts, mode, freqs);
 	}
-
-	close(rfd); 
-	close(wfd);
+	if (status != TIGHT_OK) /* error ? */
+		terrorf("%s", tight_geterror(ts));
+	close(rfd); close(wfd);
 cleanup:
 	tight_free(ts);
 	exit(status);

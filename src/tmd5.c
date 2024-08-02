@@ -45,9 +45,9 @@
  * For use in 'MD5transform'.
  */
 #define F(x, y, z)		((word)(((x) & (y)) | ((~x) & (z))))
-#define G(x, y, z) 		((word)(((x) & (z)) | ((y) & (~z))))
-#define H(x, y, z) 		((word)((x) ^ (y) ^ (z)))
-#define I(x, y, z) 		((word)((y) ^ ((x) | (~z))))
+#define G(x, y, z)		((word)(((x) & (z)) | ((y) & (~z))))
+#define H(x, y, z)		((word)((x) ^ (y) ^ (z)))
+#define I(x, y, z)		((word)((y) ^ ((x) | (~z))))
 
 
 /* 'MD5transform' round transformations */
@@ -59,17 +59,17 @@
 #define GG(a,b,c,d,x,s,ac) \
 	{ (a) += G((b), (c), (d)) + (x) + (word)(ac); \
 	  (a) = rotl((a), (s)); \
- 	  (a) += (b); }
+	  (a) += (b); }
 
 #define HH(a, b, c, d, x, s, ac) \
 	{ (a) += H((b), (c), (d)) + (x) + (word)(ac); \
 	  (a) = rotl((a), (s)); \
- 	  (a) += (b); }
+	  (a) += (b); }
 
 #define II(a, b, c, d, x, s, ac) \
 	{ (a) += I((b), (c), (d)) + (x) + (word)(ac); \
 	  (a) = rotl((a), (s)); \
- 	  (a) += (b); }
+	  (a) += (b); }
 
 
 /* get word from byte stream */
