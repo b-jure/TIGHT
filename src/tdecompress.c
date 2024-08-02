@@ -39,7 +39,7 @@ static void readversion(BuffReader *br, TIGHT *header) {
 	for (int i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		header->version[i] = c;
 		if (i == sizeof(header->version) - 1) {
-			t_tracef(">>> %.*s <<<\n", (int)sizeof(version), header->version);
+			t_tracef(">>> %.*s <<<\n", (int)sizeof(header->version), header->version);
 			if (t_unlikely(header->version[0] != TIGHT_VERSION_MAJOR[0]))
 				tightD_versionerror(br->ts, header->version[0]);
 			return; /* ok */
@@ -56,7 +56,7 @@ static void readOS(BuffReader *br, TIGHT *header) {
 	if (t_unlikely(c == TIGHTEOF))
 		tightD_headererror(br->ts, " (missing OS byte)");
 	header->os = c;
-	t_tracef(">>> %d (%s) <<<\n", c);
+	t_tracef(">>> %d <<<\n", c);
 }
 
 
@@ -111,7 +111,7 @@ static void readchecksum(BuffReader *br, TIGHT *header) {
 	for (size_t i = 0; (c = tightB_brgetc(br)) != TIGHTEOF; i++) {
 		header->checksum[i] = c;
 		if (i == sizeof(header->checksum) - 1) {
-			tightD_printchecksum(header->checksum, sizeof(header->checksum) - 1);
+			tightD_printchecksum(header->checksum, sizeof(header->checksum));
 			return; /* ok */
 		}
 	}
@@ -130,7 +130,7 @@ static void verifychecksum(BuffReader *br, TIGHT *header, off_t bindatastart,
 	t_assert(br->validbits == 0);
 	tightB_initbr(br, br->ts, br->fd); /* reset reader */
 	tightB_genMD5(br->ts, bindatasize, br->fd, out);
-	t_assert(tightB_offsetreader(br) == bindatastart + bindatasize);
+	t_assert((ulong)tightB_offsetreader(br) == bindatastart + bindatasize);
 	int res = memcmp(out, header->checksum, sizeof(out));
 	if (t_unlikely(res != 0))
 		tightD_headererror(br->ts, " (checksum doesn't match)");
@@ -186,21 +186,21 @@ static int getsymbol(TreeData **cp, TreeData *curr, int *code, int *nbits, int l
 static inline void huffmandecompression(BuffWriter *bw, BuffReader *br) {
 	tight_State *ts = bw->ts;
 	TreeData *at = ts->hufftree; /* checkpoint */
-	int ahead, sym, code, left;
+	int ahead, sym = -1, code, left;
 
 	t_assert(br->validbits == 0); /* data must be aligned */
 	t_assert(ts->hufftree != NULL); /* must have decompressed huffman tree */
 	t_trace("---Decompressing [huffman]---\n");
 
 	int c1 = tightB_brgetc(br);
-	for (int i = 0; i <= br->n; i++)
-		t_tracelong("(", tightD_printbits(br->buf[i], 8), ")");
-	t_trace("\n");
-	t_assert(c1 != TIGHTEOF); /* can't be empty */
+	if (t_unlikely(c1 == TIGHTEOF)) { /* empty file ? */
+		t_assert(bw->len == 0); /* nothing to write */
+		return;
+	}
 
 	int c2 = tightB_brgetc(br);
 	if (t_unlikely(c2 == TIGHTEOF)) { /* 'eof' in 'c1' ? */
-		left = geofbits(c1); /* eof without bias */
+		left = geofbits(c1) - 2; /* eof without bias */
 		t_assert(left <= 8 - EOFBITS);
 		code = c1 >> (8 - left);
 		goto eof;
@@ -224,7 +224,7 @@ static inline void huffmandecompression(BuffWriter *bw, BuffReader *br) {
 	}
 	t_assert(left == MAXCODE);
 	/* eof with bias and previous byte has 8 valid bits */
-	left = geofbits(code >> 8) + EOFBIAS + 2;
+	left = geofbits(code >> 8) + EOFBIAS;
 	t_assert(left <= MAXCODE - EOFBITS);
 	code = ((code >> (MAXCODE - left)) & 0xff00) | (code & 0xff);
 
@@ -232,18 +232,23 @@ eof:
 	while (left > 0) {
 		t_trace((sym != -1 ? "," : ""));
 		sym = getsymbol(&at, at, &code, &left, 0);
-		if (t_unlikely(sym == -1))
+		if (t_unlikely(sym == -1)) {
+			t_trace("\n");
 			tightD_decompresserror(ts, "invalid huffman code");
+		}
 		at = ts->hufftree;
 		t_assert(sym >= 0);
 		tightB_writebyte(bw, sym);
 	}
 	t_trace("]\n");
 	t_assert(left == 0);
-	tightB_writefile(bw);
+	tightB_writefile(bw); /* write all */
 }
 
 
+/* TODO(jure): implement LZW */
+/* TODO(jure): Implement Vitter algorithm */
+/* TODO(jure): combine Huffman and LZW to prevent reading the file twice */
 /* protected decompression */
 static void pdecompress(tight_State *ts, void *ud) {
 	TIGHT header;
@@ -256,9 +261,7 @@ static void pdecompress(tight_State *ts, void *ud) {
 	readheader(&br, &header);
 	if (header.mode & TIGHT_HUFFMAN)
 		huffmandecompression(&bw, &br);
-	if (header.mode & TIGHT_RLE) {/* TODO(jure): implement LZW */}
-	/* NOTE(jure): maybe combine huffman with LZW to prevent reading
-	   the file twice? */
+	if (header.mode & TIGHT_RLE) {}
 	t_trace("\n***Decompression complete!***\n\n");
 }
 

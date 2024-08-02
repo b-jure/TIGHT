@@ -20,7 +20,9 @@
 
 /* cleanup and exit */
 #define tdie(ts) \
-	{ tight_free(ts); if (t_outfile) free(t_outfile); exit(EXIT_FAILURE); }
+	{ tight_free(ts); \
+	  if (t_outfile) free(t_outfile); \
+	  exit(EXIT_FAILURE); }
 
 
 typedef unsigned char uchar;
@@ -33,7 +35,8 @@ typedef struct CLI_context {
 	const char *outfile; /* output file */
 	uchar huffman; /* use huffman coding */
 	uchar lzw; /* use lzw */
-	uchar decode; /* decode */
+	uchar decompress; /* decompress */
+	uchar time; /* time the execution */
 } CLIctx;
 
 
@@ -80,9 +83,13 @@ static void usage(void) {
 	tprint(
 		"usage: tight [-dhl] [INFILE] [OUTFILE]\n"
 		"\n"
-		"\t-d  decode INFILE into OUTFILE\n"
-		"\t-h  use huffman encoding\n"
-		"\t-l  use lzw encoding\n"
+		"\t-C  show copyright\n"
+		"\t-v  show version information\n"
+		"\t-h  show usage\n"
+		"\t-t  time the execution\n"
+		"\t-d  decompress INFILE into OUTFILE\n"
+		"\t-c  use huffman compression\n"
+		"\t-l  use lzw compression\n"
 	);
 }
 
@@ -105,8 +112,8 @@ static void version(void) {
  */
 static void makeoutfile(tight_State *ts, const char *infile) {
 	size_t len = strlen(infile);
-	const char *outfile = trealloc(NULL, NULL, 0, len + sizeof(".tit"));
-	if (outfile == NULL) {
+	t_outfile= trealloc(NULL, NULL, 0, len + sizeof(".tit"));
+	if (t_outfile == NULL) {
 		terror("out of memory, can't allocate storage for output filename");
 		tight_free(ts);
 		exit(ENOMEM);
@@ -150,7 +157,11 @@ readmore:
 				jmpifhaveopt(arg, i, readmore);
 				break;
 			case 'd': /* decode */
-				ctx->decode = 1;
+				ctx->decompress = 1;
+				jmpifhaveopt(arg, i, readmore);
+				break;
+			case 't': /* decode */
+				ctx->time = 1;
 				jmpifhaveopt(arg, i, readmore);
 				break;
 			case 'C': /* display copyright */
@@ -195,10 +206,12 @@ filearg:
 
 
 /* auxiliary function to 'open' syscall */
-static int openfile(const char *file, int mode, int perms) {
+static int openfile(tight_State *ts, const char *file, int mode, int perms) {
 	int fd = open(file, mode, perms);
-	if (fd < 0)
+	if (fd < 0) {
 		terrorf("error while opening file '%s': %s", file, strerror(errno));
+		tdie(ts);
+	}
 	return fd;
 }
 
@@ -263,7 +276,8 @@ static void getfrequencies(tight_State *ts, int rfd, int wfd) {
 static inline int getmode(CLIctx *ctx) {
 	int mode = (ctx->huffman * TIGHT_HUFFMAN) | (ctx->lzw * TIGHT_RLE);
 	/* TODO(jure): implement LZW */
-	if (!mode) mode = TIGHT_DEFAULT;
+	if (!mode) 
+		mode = TIGHT_DEFAULT;
 	return mode;
 }
 
@@ -290,10 +304,10 @@ int main(int argc, const char **argv) {
 		status = EXIT_FAILURE;
 	if (status == EXIT_FAILURE || res == argsexit)
 		goto cleanup;
-	int rfd = openfile(ctx.infile, O_RDONLY, 0);
-	int wfd = openfile(ctx.outfile, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+	int rfd = openfile(ts, ctx.infile, O_RDONLY, 0);
+	int wfd = openfile(ts, ctx.outfile, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	tight_setfiles(ts, rfd, wfd);
-	if (ctx.decode) { 
+	if (ctx.decompress) { 
 		status = tight_decompress(ts);
 	} else { 
 		size_t *freqs = NULL;

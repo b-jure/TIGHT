@@ -9,6 +9,7 @@
  */
 
 #include <setjmp.h>
+#include <stdarg.h>
 
 #include "talloc.h"
 #include "tight.h"

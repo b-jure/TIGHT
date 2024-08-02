@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <errno.h>
 
 #include "tdebug.h"
 #include "tbuffer.h"
@@ -11,7 +12,6 @@
 static void seterrorfmt(tight_State *ts, const char *fmt, va_list ap) {
 	Buffer buf;
 	const char *end;
-	TempMem *tm = tightA_newtempmem(ts);
 
 	tightB_init(ts, &buf);
 	while ((end = strchr(fmt, '%')) != NULL) {
@@ -32,6 +32,11 @@ static void seterrorfmt(tight_State *ts, const char *fmt, va_list ap) {
 			tightB_adduint(ts, &buf, sz);
 			break;
 		}
+		case 'z': {
+			size_t size = va_arg(ap, size_t);
+			tightB_addsize(ts, &buf, size);
+			break;
+		}
 		case 'c': {
 			unsigned char c = va_arg(ap, int);
 			tightB_push(ts, &buf, c);
@@ -42,26 +47,25 @@ static void seterrorfmt(tight_State *ts, const char *fmt, va_list ap) {
 			break;
 		}
 		default: /* UNREACHED */
-			t_assert(0);
-			break;
+			t_assert(0 && "unreachable");
+			abort();
 		}
 		fmt = end + 2; /* move to end + skip format specifier */
 	}
 	tightB_addstring(ts, &buf, fmt, strlen(fmt) + 1); /* include null term */
-	tightA_realloc(ts, buf.str, buf.size, strlen(buf.str) + 1); /* shrink block */
-	if (ts->error) /* have previous error ? */
+	tightB_shrink(ts, &buf);
+	if (ts->error != NULL) /* have previous error ? */
 		tightA_free(ts, ts->error, strlen(ts->error) + 1);
-	ts->error = buf.str;
+	ts->error = tightB_string(&buf);
+	tightS_poptemp(ts);
 }
 
 
 /* generic formatted error */
 static void errormsg(tight_State *ts, const char *fmt, ...) {
-	va_list ap;
-
 	va_start(ts->errjmp->ap, fmt);
 	ts->errjmp->haveap = 1;
-	seterrorfmt(ts, fmt, ap); /* 'va_end' in here */
+	seterrorfmt(ts, fmt, ts->errjmp->ap); /* 'va_end' in here */
 	va_end(ts->errjmp->ap);
 	ts->errjmp->haveap = 0;
 }
@@ -84,7 +88,7 @@ t_noret tightD_decompresserror(tight_State *ts, const char *desc) {
 
 
 /* malformed TIGHT header error */
-t_noret tightD_headererr(tight_State *ts, const char *extra) {
+t_noret tightD_headererror(tight_State *ts, const char *extra) {
 	extra = (extra ? extra : "");
 	errormsg(ts, "malformed header%s", extra);
 	tightS_throw(ts, TIGHT_ERRHEAD);
@@ -92,25 +96,24 @@ t_noret tightD_headererr(tight_State *ts, const char *extra) {
 
 
 /* libc error */
-t_noret tigthD_errnoerror(tight_State *ts, const char *fn, int errnum) {
+t_noret tightD_errnoerror(tight_State *ts, const char *fn) {
 	t_assert(fn != NULL);
-	t_assert(errnum != 0);
-	errormsg(ts, "%s: %s", fn, strerror(errnum));
+	t_assert(errno != 0);
+	errormsg(ts, "%s: %s", fn, strerror(errno));
 	tightS_throw(ts, TIGHT_ERRNO);
 }
 
 
 /* size limit error */
-t_noret tightD_limiterror(tight_State *ts, const char *what, uint limit) {
+t_noret tightD_limiterror(tight_State *ts, const char *what, size_t limit) {
 	t_assert(what != NULL);
-	errormsg(ts, "too many %s, limit is %u", what, limit);
+	errormsg(ts, "%s limit error, limit is %z", what, limit);
 	tightS_throw(ts, TIGHT_ERRLIMIT);
 }
 
 
 /* mismatched 'major' version error */
 t_noret tightD_versionerror(tight_State *ts, byte major) {
-	t_assert(major != NULL);
 	errormsg(ts, "mismatched major version number, expect " TIGHT_VERSION_MAJOR
 				 " got %c", major);
 	tightS_throw(ts, TIGHT_ERRVER);

@@ -6,12 +6,12 @@ PREFIX = /usr/local
 MANPREFIX = $(PREFIX)/share/man
 
 # optimizations 
-#OPTS = -O2
+OPTS = -O2
 
 # debug flags and definitions
-DDEFS = -DTIGHT_ASSERT -DTIGHT_TRACE
-ASANFLAGS = -fsanitize=address -fsanitize=undefined
-DBGFLAGS = ${ASANFLAGS} -g
+#DDEFS = -DTIGHT_ASSERT -DTIGHT_TRACE
+#ASANFLAGS = -fsanitize=address -fsanitize=undefined
+#DBGFLAGS = ${ASANFLAGS} -g
 
 # flags
 CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DDEFS} ${DBGFLAGS} ${OPTS}

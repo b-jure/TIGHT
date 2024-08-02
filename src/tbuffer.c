@@ -30,12 +30,20 @@
 
 /* initialize buffer */
 void tightB_init(tight_State *ts, Buffer *buf) {
-	t_assert(ts->temp != NULL);
+	(void)tightA_newtempmem(ts);
 	buf->size = 0;
 	buf->len = 0;
 	buf->str = NULL;
 	ensurebuf(ts, buf, MINBUFSIZE);
 	updatetm(ts->temp, buf->str, buf->size);
+}
+
+
+/* shrink to 'strlen' size + 1 */
+void tightB_shrink(tight_State *ts, Buffer *buf) {
+	size_t len = strlen(buf->str) + 1;
+	buf->str = tightA_realloc(ts, buf->str, buf->size, len);
+	updatetm(ts->temp, buf->str, len);
 }
 
 
@@ -69,6 +77,18 @@ void tightB_addstring(tight_State *ts, Buffer *buf, const char *str, size_t len)
 	ensurebuf(ts, buf, len);
 	memcpy(&buf->str[buf->len], str, len);
 	addlen2buff(buf, len);
+	updatetm(ts->temp, buf->str, buf->size);
+}
+
+
+/* add 'size_t' */
+void tightB_addsize(tight_State *ts, Buffer *buf, size_t size) {
+	char temp[MAXNUMDIGITS];
+	int cnt = snprintf(temp, sizeof(temp), "%zu", size);
+	t_assert(ts->temp != NULL);
+	ensurebuf(ts, buf, cnt);
+	memcpy(&buf->str[buf->len], temp, cnt);
+	addlen2buff(buf, cnt);
 	updatetm(ts->temp, buf->str, buf->size);
 }
 
@@ -249,8 +269,9 @@ static inline void writeshort(BuffWriter *bw, ushrt shrt) {
 }
 
 
-/* write bits to 'tmpbuf' */
+/* write 'len' bits in 'code' to 'tmpbuf' */
 void tightB_writenbits(BuffWriter *bw, int code, int len) {
+	t_assert(len <= MAXCODE);
 	bw->tmpbuf |= (ushrt)code << bw->validbits;
 	if (bw->validbits > TMPBsize - len) { /* would overflow ? */
 		writeshort(bw, bw->tmpbuf);
@@ -272,9 +293,11 @@ void tightB_writepending(BuffWriter *bw) {
 		} else {
 			tightB_writenbits(bw, 0, 8 - bw->validbits);
 			tightB_writebyte(bw, bw->tmpbuf);
+			bw->tmpbuf >>= 8;
 			bw->validbits = 0;
 		}
 	}
+	t_assert(bw->tmpbuf == 0); /* must be zeroed out */
 	t_assert(bw->validbits == 0); /* must be exactly '0' */
 }
 

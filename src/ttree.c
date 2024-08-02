@@ -1,5 +1,6 @@
 #include "ttree.h"
 #include "talloc.h"
+#include "tdebug.h"
 
 
 /* make new leaf tree */
@@ -17,6 +18,10 @@ TreeData *tightT_newparent(tight_State *ts, TreeData *t1, TreeData *t2, ushrt id
 	TreeData *tp = tightA_malloc(ts, sizeof(*tp));
 	tp->left = t1;
 	tp->right = t2;
+	if (t_unlikely(t1->freq > SIZE_MAX - t2->freq)) { /* overflow ? */
+		tightA_free(ts, tp, sizeof(*tp));
+		tightD_limiterror(ts, "frequency", SIZE_MAX);
+	}
 	tp->freq = t1->freq + t2->freq;
 	tp->c = idx;
 	return tp;

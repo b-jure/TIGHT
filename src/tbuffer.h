@@ -23,6 +23,7 @@
 
 #define tightB_pop(b)		((b)->str[--(b)->len])
 #define tightB_last(b)		((b)->str[(b)->len - 1])
+#define tightB_string(b)	((b)->str)
 
 
 /* string buffer */
@@ -34,9 +35,11 @@ typedef struct Buffer {
 
 
 TIGHT_FUNC void tightB_init(tight_State *ts, Buffer *buf);
+TIGHT_FUNC void tightB_shrink(tight_State *ts, Buffer *buf);
 TIGHT_FUNC void tightB_free(tight_State *ts, Buffer *buf);
 TIGHT_FUNC void tightB_addint(tight_State *ts, Buffer *buf, int i);
 TIGHT_FUNC void tightB_adduint(tight_State *ts, Buffer *buf, uint u);
+TIGHT_FUNC void tightB_addsize(tight_State *ts, Buffer *buf, size_t size);
 TIGHT_FUNC void tightB_push(tight_State *ts, Buffer *buf, unsigned char c);
 TIGHT_FUNC void tightB_addstring(tight_State *ts, Buffer *buf, const char *str,
 								 size_t len);

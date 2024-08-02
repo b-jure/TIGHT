@@ -37,8 +37,8 @@
 
 /* trace execution */
 #if defined(TIGHT_TRACE)
-#define t_tracef(fmt, ...)		fprintf(stderr, fmt, __VA_ARGS__)
-#define t_trace(msg)			fputs(msg, stderr)
+#define t_tracef(fmt, ...)		(fprintf(stderr, fmt, __VA_ARGS__), fflush(stderr))
+#define t_trace(msg)			(fputs(msg, stderr), fflush(stderr))
 
 #define t_tracelong(pre,block,pos)		{ t_trace(pre); block; t_trace(pos); }
 #else
@@ -75,6 +75,15 @@
 #endif
 
 
+/* Header 'os' values */
+#define TIGHT_GNULINUX		0
+#define TIGHT_ANDROID		1
+#define TIGHT_WINDOWS		2
+#define TIGHT_MAC			3
+#define TIGHT_FREEBSD		4
+
+
+/* set 'TIGHT_OS' */
 #if defined(__linux__)
 #define TIGHT_OS	TIGHT_GNULINUX
 #elif defined(__ANDROID__)

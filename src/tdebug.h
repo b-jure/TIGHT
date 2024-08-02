@@ -15,7 +15,7 @@ TIGHT_FUNC t_noret tightD_compresserror(tight_State *ts, const char *desc);
 TIGHT_FUNC t_noret tightD_decompresserror(tight_State *ts, const char *desc);
 TIGHT_FUNC t_noret tightD_headererror(tight_State *ts, const char *extra);
 TIGHT_FUNC t_noret tightD_errnoerror(tight_State *ts, const char *fn);
-TIGHT_FUNC t_noret tightD_limiterror(tight_State *ts, const char *what, uint limit);
+TIGHT_FUNC t_noret tightD_limiterror(tight_State *ts, const char *what, size_t limit);
 TIGHT_FUNC t_noret tightD_versionerror(tight_State *ts, byte major);
 
 

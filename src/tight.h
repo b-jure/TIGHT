@@ -52,15 +52,6 @@ typedef void *(*tight_fRealloc)(void *block, void *ud, size_t os, size_t ns);
 
 
 
-/* Header 'os' values */
-#define TIGHT_GNULINUX		0
-#define TIGHT_ANDROID		1
-#define TIGHT_WINDOWS		2
-#define TIGHT_MAC			3
-#define TIGHT_FREEBSD		4
-
-
-
 /*
  * Get current version.
  */
