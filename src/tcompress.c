@@ -1,5 +1,11 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'tight.h' for license details.
+ *****************************************/
+
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #if defined(TIGHT_TRACE)
@@ -93,8 +99,8 @@ static void writetree(BuffWriter *bw, TreeData *ht) {
 
 
 static inline void writebindata(BuffWriter *bw, int mode) {
-	t_assert(bw->ts->hufftree);
 	if (mode & TIGHT_HUFFMAN) {
+		t_assert(bw->ts->hufftree);
 		t_trace("---Writing [tree]---\n");
 		writetree(bw, bw->ts->hufftree);
 		t_trace("\n");
@@ -106,15 +112,22 @@ static inline void writebindata(BuffWriter *bw, int mode) {
 
 
 /* write MD5 digest */
-static inline void writechecksum(BuffWriter *bw) {
+static inline void writechecksum(BuffWriter *bw, int mode) {
 	byte checksum[16];
 
 	t_assert(bw->len == 0); /* buffer must be flushed */
-	off_t bindatasz = tightB_seekwriter(bw, 0, SEEK_CUR) - TIGHTbindataoffset;
-	t_assert(bindatasz > 0);
-	tightB_seekwriter(bw, TIGHTbindataoffset, SEEK_SET);
-	tightB_genMD5(bw->ts, bindatasz, bw->fd, checksum);
-	t_assert(lseek(bw->fd, 0, SEEK_CUR) == TIGHTbindataoffset + bindatasz);
+	/* TODO(jure): Implement LZW */
+	if (mode & TIGHT_RLE) {
+		/* not yet implemented, set dummy checksum */
+		memset(checksum, 0, sizeof(checksum));
+	} else {
+		t_assert(mode & TIGHT_HUFFMAN);
+		off_t bindatasz = tightB_seekwriter(bw, 0, SEEK_CUR) - TIGHTbindataoffset;
+		t_assert(bindatasz > 0);
+		tightB_seekwriter(bw, TIGHTbindataoffset, SEEK_SET);
+		tightB_genMD5(bw->ts, bindatasz, bw->fd, checksum);
+		t_assert(lseek(bw->fd, 0, SEEK_CUR) == TIGHTbindataoffset + bindatasz);
+	}
 	t_trace("---Writing [checksum(MD5)]---\n");
 	tightB_writebyte(bw, checksum[0]);
 	tightB_writebyte(bw, checksum[1]);
@@ -143,7 +156,7 @@ static void writeheader(BuffWriter *bw, int mode) {
 	writeOS(bw);
 	writemode(bw, mode);
 	writebindata(bw, mode);
-	writechecksum(bw);
+	writechecksum(bw, mode);
 	tightB_writefile(bw); /* write all */
 }
 
@@ -155,7 +168,7 @@ static void writeheader(BuffWriter *bw, int mode) {
  * For example, in case last 'EOFBITS' are '001' (1),
  * then 7 bits will be read starting from the previous byte.
  */
-static void compresseof(BuffWriter *bw) {
+static void writeeof(BuffWriter *bw) {
 	if (bw->validbits >= 8) {
 		t_tracelong("(", tightD_printbits(bw->tmpbuf, 8), ")");
 		tightB_writebyte(bw, bw->tmpbuf);
@@ -178,6 +191,7 @@ static void compresseof(BuffWriter *bw) {
 		t_tracelong("(", tightD_printbits(extrabits, 8), ")");
 		tightB_writebyte(bw, extrabits);
 	}
+	bw->tmpbuf = 0;
 	bw->validbits = 0;
 	tightB_writefile(bw); /* write all */
 }
@@ -198,7 +212,7 @@ static void huffmancompression(BuffReader *br, BuffWriter *bw) {
 		t_trace("("); tightD_printbits(hc->code, hc->nbits); t_trace(")");
 		tightB_writenbits(bw, hc->code, hc->nbits);
 	}
-	compresseof(bw);
+	writeeof(bw);
 	t_trace("\n");
 }
 

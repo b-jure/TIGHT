@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'tight.h' for license details.
+ *****************************************/
+
 #ifndef TIGHTINTERNAL_H
 #define TIGHTINTERNAL_H
 

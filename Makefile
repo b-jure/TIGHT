@@ -14,7 +14,7 @@ BIN = tight
 
 # shared library
 LIBH = tight.h
-LIBOBJ = ${SRC:.c=pic.o}
+LIBOBJ = ${SRC:.c=.pic.o}
 LIB = libtight.so
 
 # archive
@@ -70,7 +70,7 @@ install: all
 	sed "s/VERSION/${VERSION}/g" < ${BIN}.1 | gzip > ${DESTDIR}${MANPREFIX}/man1/${BIN}.1.gz
 	chmod 644 ${DESTDIR}${MANPREFIX}/man1/${BIN}.1.gz
 
-install-library: library
+install-lib: library
 	mkdir -p ${DESTDIR}${PREFIX}/lib
 	cp -f ${LIB} ${DESTDIR}${PREFIX}/lib
 	cp -f src/${LIBH} ${DESTDIR}${PREFIX}/include
@@ -81,7 +81,7 @@ uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/${BIN}\
 		${DESTDIR}${MANPREFIX}/man1/${BIN}.1.gz
 
-uninstall-library:
+uninstall-lib:
 	rm -f ${DESTDIR}${PREFIX}/lib/${LIB}\
 	rm -f ${DESTDIR}${PREFIX}/include/${LIBH}
 

@@ -1,3 +1,19 @@
+/**********************************************************************************************
+ * Copyright (C) 2024 Jure B.
+ *
+ * This file is part of tight.
+ * tight is free software: you can redistribute it and/or modify it under the terms of the GNU
+ * General Public License as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * tight is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with tight.
+ * If not, see <https://www.gnu.org/licenses/>.
+ **********************************************************************************************/
+
 #ifndef TIGHT_H
 #define TIGHT_H
 
@@ -46,14 +62,14 @@ typedef void *(*tight_fRealloc)(void *block, void *ud, size_t os, size_t ns);
 
 /* modes for compression */
 #define TIGHT_NONE			0
-#define TIGHT_HUFFMAN		1
-#define TIGHT_RLE			2 /* TODO(jure) */
+#define TIGHT_HUFFMAN		1		/* compress with huffman codes */
+#define TIGHT_RLE			2		/* TODO(jure): implement */
 #define TIGHT_DEFAULT		(TIGHT_HUFFMAN | TIGHT_RLE)
 
 
 
 /*
- * Get current version.
+ * Get current version string (semantic versioning).
  */
 TIGHT_API const char *tight_version(void);
 

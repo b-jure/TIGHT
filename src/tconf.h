@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'tight.h' for license details.
+ *****************************************/
+
 #ifndef TIGHTCONF_H
 #define TIGHTCONF_H
 
@@ -15,7 +20,7 @@
 
 /* buffer size when reading input file */
 #if !defined(TIGHT_RBUFFSIZE)
-#define TIGHT_RBUFFSIZE				65536	/* 64K */
+#define TIGHT_RBUFFSIZE				131072	/* 128 KiB */
 #endif
 
 

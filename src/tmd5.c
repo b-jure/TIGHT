@@ -1,5 +1,6 @@
-/************************************************************************
- * Copyright (C) 2024 B. Jure, refer to 'tight.h' for license details.
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'tight.h' for license details.
  * Derived from the RSA Data Security, Inc. MD5 Message-Digest Algorithm.
  ************************************************************************/
 

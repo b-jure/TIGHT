@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'tight.h' for license details.
+ *****************************************/
+
 #include <string.h>
 #include <unistd.h>
 #if defined(TIGHT_TRACE)
@@ -100,6 +105,8 @@ static inline void readbindata(BuffReader *br, TIGHT* header) {
 		t_assert(br->ts->hufftree != NULL);
 		t_assert(br->validbits > 0); /* should have leftover */
 		tightB_readpending(br, NULL); /* rest is just padding */
+	} else {
+		t_assert(header->mode & (TIGHT_RLE | TIGHT_NONE));
 	}
 }
 
@@ -125,10 +132,14 @@ static void verifychecksum(BuffReader *br, TIGHT *header, off_t bindatastart,
 {
 	byte out[16];
 	off_t offset;
+
+	/* reset reader */
+	tightB_initbr(br, br->ts, br->fd);
+	/* TODO(jure): Implement LZW */
+	if (header->mode & TIGHT_RLE) return;
 	if (t_unlikely((offset = lseek(br->fd, bindatastart, SEEK_SET)) < 0))
 		tightD_errnoerror(br->ts, "lseek (input file)");
 	t_assert(br->validbits == 0);
-	tightB_initbr(br, br->ts, br->fd); /* reset reader */
 	tightB_genMD5(br->ts, bindatasize, br->fd, out);
 	t_assert((ulong)tightB_offsetreader(br) == bindatastart + bindatasize);
 	int res = memcmp(out, header->checksum, sizeof(out));
@@ -198,17 +209,17 @@ static inline void huffmandecompression(BuffWriter *bw, BuffReader *br) {
 		return;
 	}
 
+	t_trace("[");
 	int c2 = tightB_brgetc(br);
 	if (t_unlikely(c2 == TIGHTEOF)) { /* 'eof' in 'c1' ? */
 		left = geofbits(c1) - 2; /* eof without bias */
 		t_assert(left <= 8 - EOFBITS);
-		code = c1 >> (8 - left);
+		code = c1 >> 3;
 		goto eof;
 	}
 
 	code = (c2 << 8) | c1;
 	left = MAXCODE;
-	t_trace("[");
 	while ((ahead = tightB_brgetc(br)) != TIGHTEOF) {
 		t_assert(left == MAXCODE);
 		for (;;) {
@@ -226,7 +237,7 @@ static inline void huffmandecompression(BuffWriter *bw, BuffReader *br) {
 	/* eof with bias and previous byte has 8 valid bits */
 	left = geofbits(code >> 8) + EOFBIAS;
 	t_assert(left <= MAXCODE - EOFBITS);
-	code = ((code >> (MAXCODE - left)) & 0xff00) | (code & 0xff);
+	code = ((code & 0xff00) >> 3) | (code & 0xff);
 
 eof:
 	while (left > 0) {

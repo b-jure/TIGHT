@@ -6,10 +6,10 @@ PREFIX = /usr/local
 MANPREFIX = $(PREFIX)/share/man
 
 # optimizations 
-OPTS = -O2
+OPTS = -O3
 
 # debug flags and definitions
-#DDEFS = -DTIGHT_ASSERT -DTIGHT_TRACE
+#DDEFS = -DTIGHT_ASSERT #-DTIGHT_TRACE
 #ASANFLAGS = -fsanitize=address -fsanitize=undefined
 #DBGFLAGS = ${ASANFLAGS} -g
 

@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'tight.h' for license details.
+ *****************************************/
+
 #include <stdio.h>
 #include <memory.h>
 #include <unistd.h>
@@ -271,13 +276,15 @@ static inline void writeshort(BuffWriter *bw, ushrt shrt) {
 
 /* write 'len' bits in 'code' to 'tmpbuf' */
 void tightB_writenbits(BuffWriter *bw, int code, int len) {
-	t_assert(len <= MAXCODE);
-	bw->tmpbuf |= (ushrt)code << bw->validbits;
+	t_assert(0 < len && len <= MAXCODE);
 	if (bw->validbits > TMPBsize - len) { /* would overflow ? */
+		bw->tmpbuf |= (uint)code << bw->validbits;
 		writeshort(bw, bw->tmpbuf);
 		bw->tmpbuf = (ushrt)code >> (TMPBsize - bw->validbits);
 		bw->validbits += len - TMPBsize;
 	} else { /* no overflow */
+		t_assert(bw->validbits < MAXCODE);
+		bw->tmpbuf |= (ushrt)code << bw->validbits;
 		bw->validbits += len;
 	}
 }

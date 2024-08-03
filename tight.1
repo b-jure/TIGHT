@@ -1,0 +1,64 @@
+.TH tight 1 "03.08.2024" "version 1.0.0"
+
+.SH NAME
+tight - program for lossless file compression and decompression.
+
+.SH SYNOPSIS
+.B tight \fP[-\fICVvhtdcl\fP] [\fBINFILE\fP] [\fBOUTFILE\fP]
+
+.SH DESCRIPTION
+Tight is a lossless compression program capable of compressing and decompressing \
+files. It was built around \fIlibtight\fP which is baked in the binary itself.
+To learn more about which compression algorithms and strategies are used check out
+\fIlibtight\fP which should be part of the same git repository (under name \fBTIGHT\fP \
+hosted on github).
+
+.SH COMMANDS
+.TP
+.B -C
+Show copyright information.
+.TP
+.B -V
+Enable verbose output.
+.TP
+.B -v
+Show version information.
+.TP
+.B -h
+Show usage (help).
+.TP
+.B -t
+Time the execution of compression/decompression.
+.TP
+.B -d
+Decompress already compressed \fBINFILE\fP into \fBOUTFILE\fP.
+.TP
+.B -c
+Use huffman coding when compressing.
+.TP
+.B -l
+(NOT IMPLEMENTED!) Use run-length-encoding when compressing.
+
+.SH EXAMPLES
+Compress \fBmytar.tar\fP and store the compressed file as \fBmytar.tar.tit\fP.
+
+.RS
+\fBtight mytar.tar mytar.tar.tit\fP
+.RE
+
+Same as above, if no output file was specified then \fI.tit\fP is appended.
+In cases where adding \fI.tit\fP would overflow the maximum name size of the
+ouput file, end of the filepath is trimmed in order to fit \fI.tit\fP extension.
+
+.RS
+\fBtight mytar.tar\fP
+.RE
+
+Decompress \fBmytar.tar.tit\fP into \fBmytar.tar\fP, you must specify output file.
+
+.RS
+\fBtight -d mytar.tar.tit mytar.tar\fP
+.RE
+
+.SH AUTHOR
+Written by B. Jure.

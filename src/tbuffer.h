@@ -1,6 +1,6 @@
 /*****************************************
  * Copyright (C) 2024 Jure B.
- * Refer to 'pfc.h' for license details.
+ * Refer to 'tight.h' for license details.
  *****************************************/
 
 #ifndef TIGHTBUFFER_H
